@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+service VideoService {
+  rpc StreamVideo (VideoRequest) returns (stream VideoFrame);
+  rpc StreamMinimap (VideoRequest) returns (stream VideoFrame);
+  rpc MouseEvent (stream HidMessage) returns (HidResponse);
+  rpc KeyboardEvent (stream HidMessage) returns (HidResponse);
+  rpc StartMinimap (Empty) returns (MinimapResponse);
+  rpc StopMinimap (Empty) returns (MinimapResponse);
+}
+
+message Empty {}
+
+message MinimapResponse {
+  string message = 1;
+}
+
+message HidMessage {
+  string hidEvent = 1;
+}
+
+message HidResponse {
+  string message = 1;
+}
+
+message VideoRequest{
+
+}
+
+message VideoFrame {
+  bytes frame = 1;
+}

@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+service Restart {
+  rpc RestartProcess(RestartRequest) returns (RestartResponse);
+  rpc RequestUpdate(UpdateRequest) returns (stream UpdateResponse);
+}
+
+message RestartRequest {}
+
+message RestartResponse {
+  string message = 1;
+}
+
+message UpdateRequest {}
+
+message UpdateResponse {
+  int32 progress = 1; // Progress percentage (0 to 100)
+  string status_message = 2; // Optional status message
+}

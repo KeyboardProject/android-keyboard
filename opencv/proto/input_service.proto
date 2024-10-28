@@ -1,0 +1,96 @@
+// input.proto
+syntax = "proto3";
+
+service Input {
+  rpc StartRecording(StartRequest) returns (StatusResponse);
+  rpc StopRecording(StopRequest) returns (StatusResponse);
+  rpc StartReplay(ReplayRequest) returns (StatusResponse);
+  rpc GetMacroDetail(GetMacroDetailRequest) returns (GetMacroDetailResponse);
+  rpc ReplayMacroDebug(ReplayRequest) returns (stream MacroEvent);
+  rpc StopReplay(StopReplayRequest) returns (StatusResponse);
+  rpc ListSaveFiles(ListRequest) returns (SaveFilesResponse);
+  rpc SaveMacro(SaveMacroRequest) returns (SaveMacroResponse);
+  rpc DeleteMacros(DeleteMacrosRequest) returns (StatusResponse);
+  rpc StartComplexReplay(ComplexReplayRequest) returns (StatusResponse);
+  rpc ImportProfile(ImportProfileRequest) returns (StatusResponse);
+  rpc ExportProfile(ExportProfileRequest) returns (ExportProfileResponse);
+}
+
+message KeyEvent {
+  uint64 delay = 1; // 시간 지연(나노초 단위)
+  bytes data = 2;   // HID 리포트 데이터
+}
+
+message StartRequest {
+  string filename = 1;
+}
+
+message StopRequest {}
+
+message ListRequest {}
+
+message StopReplayRequest {}
+
+message StatusResponse {
+  string message = 1;
+}
+
+message MacroEvent {
+  string eventDescription = 1;
+}
+
+message ReplayRequest {
+  string filename = 1;
+}
+
+message GetMacroDetailRequest {
+  string filename = 1;
+}
+
+message GetMacroDetailResponse {
+  repeated KeyEvent events = 1;
+}
+
+message SaveFilesResponse {
+  repeated string filenames = 1;  // 파일 이름 목록
+}
+
+message SaveMacroRequest {
+    repeated KeyEvent events = 1;
+    string filename = 2;
+}
+
+message SaveMacroResponse {
+    bool success = 1;
+}
+
+message DeleteMacrosRequest {
+  repeated string filenames = 1; // 삭제할 파일 이름 목록
+}
+
+message ComplexReplayRequest {
+  repeated ReplayTask tasks = 1; // 재생할 작업 목록
+  int32 repeatCount = 2;         // 작업 목록 반복 횟수
+}
+
+// 재생할 단일 작업(녹화 파일 및 지연)을 나타내는 메시지
+message ReplayTask {
+  string filename = 1; // 녹화 파일 이름
+  int32 delayAfter = 2; // 파일 재생 후 지연 시간(초)
+  int32 repeatCount = 3;
+}
+
+// Import Profile
+message ImportProfileRequest {
+  string filename = 1;
+  bytes savfile = 2;
+}
+
+// Export Profile
+message ExportProfileRequest {
+  string filename = 1;
+}
+
+message ExportProfileResponse {
+  bytes savfile = 1;
+}

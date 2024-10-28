@@ -1,0 +1,1 @@
+*.{a,so,dll,exe,db,sqlite,aar,lib,jar,class,o,obj} filter=lfs diff=lfs merge=lfs -text

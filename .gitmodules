@@ -1,0 +1,3 @@
+[submodule "opencv/grpc"]
+	path = opencv/grpc
+	url = git@github.com:grpc/grpc.git
