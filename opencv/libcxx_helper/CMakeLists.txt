@@ -93,8 +93,10 @@ target_link_libraries(proto_lib
 
 # 소스 파일 추가
 add_library(native_lib SHARED
+        jni_helper.cpp
+        jvm/JvmManager.cpp
         CaptureThread.cpp
-        GrpcServer.cpp
+        grpc/GrpcServer.cpp
         grpc/VideoService.cpp
         grpc/InputService.cpp
         ${PROTO_SRCS}

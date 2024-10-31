@@ -8,12 +8,17 @@
 #include "grpcpp/grpcpp.h"
 #include "grpc/input_service.grpc.pb.h"
 #include <android/log.h>
+#include "GrpcServer.h"
+#include "../jni_helper.h"
 
-#define LOG_TAG "CaptureThread"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define INPUT_SERVICE_LOG_TAG "InputService"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, INPUT_SERVICE_LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, INPUT_SERVICE_LOG_TAG, __VA_ARGS__)
 
-class InputService final : public Input::Service {
+using MacroReplayCallback = std::function<void(const std::string&)>;
+
+class InputService final : public GrpcServer, Input::Service {
+
     grpc::Status StartRecording(grpc::ServerContext* context, const StartRequest* request,
                                 StatusResponse* response) override;
     grpc::Status StopRecording(grpc::ServerContext* context, const StopRequest* request,
@@ -37,6 +42,14 @@ class InputService final : public Input::Service {
 
     grpc::Status ImportProfile(grpc::ServerContext* context, const ImportProfileRequest* request, StatusResponse* response) override;
     grpc::Status ExportProfile(grpc::ServerContext* context, const ExportProfileRequest* request, ExportProfileResponse* response) override;
+
+    void startMacroReplay(const std::string& filename, MacroReplayCallback callback);
+public:
+    InputService(JNIEnv* env, jobject instance) {
+        // Java 객체를 전역 참조로 저장
+        this->kotlinInstance = env->NewGlobalRef(instance);
+    }
+    void init(int port);
 };
 
 
