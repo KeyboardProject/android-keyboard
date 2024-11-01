@@ -10,6 +10,7 @@
 #include <android/log.h>
 #include "GrpcServer.h"
 #include "../jni_helper.h"
+#include "../jvm/JvmManager.h"
 
 #define INPUT_SERVICE_LOG_TAG "InputService"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, INPUT_SERVICE_LOG_TAG, __VA_ARGS__)

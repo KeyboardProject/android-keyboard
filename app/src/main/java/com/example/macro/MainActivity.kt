@@ -30,8 +30,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.macro.capture.CaptureThread
 import com.example.macro.grpc.GrpcMain
-import com.example.macro.handler.UsbHandler
+import com.example.macro.handler.UsbKeyboardHandler
 import com.example.macro.keyboard.GattServerService
+import com.example.macro.macro.KeyboardMacro
 import com.example.macro.ui.theme.MacroTheme
 import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
@@ -41,7 +42,7 @@ import java.nio.ByteBuffer
 
 
 class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
-    private var usbHandler: UsbHandler? = null
+    private var usbKeyboardHandler: UsbKeyboardHandler? = null
     private lateinit var captureThread: CaptureThread
 
     private val usbPermissionReceiver = UsbPermissionReceiver()
@@ -49,6 +50,8 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
     private lateinit var textureView: TextureView
 
     private lateinit var grpcMain: GrpcMain;
+
+    private lateinit var keyboardMacro: KeyboardMacro;
 
     lateinit var permissionLauncher: ActivityResultLauncher<Array<String>>
 
@@ -101,16 +104,17 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
 
         checkAndRequestPermissions()
 
-        if (!OpenCVLoader.initDebug()) {
-            Log.e(TAG, "OpenCV 초기화 실패!")
-        } else {
-            Log.d(TAG, "OpenCV 초기화 성공!!!!!")
-        }
+//        if (!OpenCVLoader.initDebug()) {
+//            Log.e(TAG, "OpenCV 초기화 실패!")
+//        } else {
+//            Log.d(TAG, "OpenCV 초기화 성공!!!!!")
+//        }
 
         captureThread = CaptureThread(assets)
-        usbHandler = UsbHandler(this, captureThread)
+        keyboardMacro = KeyboardMacro(this);
+        usbKeyboardHandler = UsbKeyboardHandler(this, captureThread, keyboardMacro)
 
-        grpcMain = GrpcMain()
+        grpcMain = GrpcMain(keyboardMacro)
     }
 
     private fun showPermissionDeniedDialog(deniedPermissions: List<String>) {
@@ -250,7 +254,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
 
     override fun onDestroy() {
         // UsbHandler의 리소스 해제 메서드 호출
-        usbHandler?.cleanup()
+        usbKeyboardHandler?.cleanup()
 
         super.onDestroy()
     }

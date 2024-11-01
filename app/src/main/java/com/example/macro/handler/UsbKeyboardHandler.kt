@@ -14,11 +14,13 @@ import android.os.IBinder
 import android.util.Log
 import com.example.macro.capture.CaptureThread
 import com.example.macro.keyboard.GattServerService
+import com.example.macro.macro.KeyboardMacro
 import com.example.macro.test.UsbHelper
 
-class UsbHandler(
+class UsbKeyboardHandler(
     private val context: Context,
-    private var captureThread: CaptureThread?
+    private var captureThread: CaptureThread?,
+    private val keyboardMacro: KeyboardMacro
 ) {
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
     private val deviceProcessingMap = mutableMapOf<String, Boolean>()
@@ -64,6 +66,7 @@ class UsbHandler(
                                     if (validDevice == "CaptureBoard") {
                                         startCaptureDevice(device)
                                     } else if(validDevice == "Keyboard") {
+                                        Log.d(TAG, "keyboard start");
                                         startListeningForKeyboard(device)
                                     } else {
                                         Log.e(TAG, "USB device is not valid or has no valid endpoints")
@@ -107,7 +110,10 @@ class UsbHandler(
 
         Thread {
             while (true) {
-                val bytesRead = connection.bulkTransfer(endpoint, buffer, buffer.size, 1000)
+//                Log.d(TAG, "Attempting to read from USB keyboard")
+                // bulkTransfer 호출 후 결과 출력
+                val bytesRead = connection.bulkTransfer(endpoint, buffer, buffer.size, 5000)
+//                Log.d(TAG, "Bytes read result: $bytesRead")
                 if (bytesRead > 0) {
                   val keyData = buffer.copyOf(bytesRead)
                     // 서비스로 키 이벤트 전달
@@ -118,7 +124,9 @@ class UsbHandler(
                     } else {
                         Log.e(TAG, "GattServerService is not connected")
                     }
-                    Log.d(TAG, "Bytes read from USB Keyboard: ${buffer.joinToString(" ") { "%02x".format(it) }}")
+
+                    keyboardMacro.addInput(keyData)  // KeyboardMacro에 이벤트 추가
+//                    Log.d(TAG, "Bytes read from USB Keyboard: ${buffer.joinToString(" ") { "%02x".format(it) }}")
                     // keyboardSender.sendUsbHidReport(buffer.copyOf(bytesRead))
                 }
             }

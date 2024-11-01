@@ -25,74 +25,42 @@ jmethodID JvmManager::findJavaMethod(JNIEnv* env, const std::string& methodName,
     return methodID;
 }
 
-std::vector<jvalue> JvmManager::convertToJValues(JNIEnv* env, const std::vector<std::string>& stringArgs) {
-    std::vector<jvalue> args;
-    for (const auto& arg : stringArgs) {
-        jvalue jArg;
-        jArg.l = env->NewStringUTF(arg.c_str());
-        args.push_back(jArg);
-    }
-    return args;
-}
-
-void JvmManager::cleanupJValues(JNIEnv* env, const std::vector<jvalue>& args) {
+void JvmManager::cleanupJValues(JNIEnv* env, const std::vector<JvmManager::JvalueWithType>& args) {
     for (const auto& arg : args) {
-        env->DeleteLocalRef(arg.l);
-    }
-}
-
-std::vector<jvalue> JvmManager::convertToJValues(JNIEnv* env, const std::vector<JavaArg>& args) {
-    std::vector<jvalue> jvalues;
-    for (const auto& arg : args) {
-        jvalue jArg;
-        if (std::holds_alternative<std::string>(arg)) {
-            jArg.l = env->NewStringUTF(std::get<std::string>(arg).c_str());
-        } else if (std::holds_alternative<int>(arg)) {
-            jArg.i = std::get<int>(arg);
-        } else if (std::holds_alternative<long>(arg)) {
-            jArg.j = std::get<long>(arg);
-        } else if (std::holds_alternative<bool>(arg)) {
-            jArg.z = std::get<bool>(arg);
+        if (arg.type == JavaArgType::STRING && arg.value.l != nullptr) {
+            env->DeleteLocalRef(arg.value.l);
         }
-        jvalues.push_back(jArg);
+    }
+}
+
+std::vector<JvmManager::JvalueWithType> JvmManager::convertToJValues(JNIEnv* env, const std::vector<JavaArg>& args) {
+    std::vector<JvmManager::JvalueWithType> jvalues;
+    for (const auto& arg : args) {
+        JvalueWithType jArgWithType = {};
+        if (std::holds_alternative<std::string>(arg)) {
+            jArgWithType.value.l = env->NewStringUTF(std::get<std::string>(arg).c_str());
+            jArgWithType.type = JavaArgType::STRING;
+        } else if (std::holds_alternative<int>(arg)) {
+            jArgWithType.value.i = std::get<int>(arg);
+            jArgWithType.type = JavaArgType::INT;
+        } else if (std::holds_alternative<long>(arg)) {
+            jArgWithType.value.j = std::get<long>(arg);
+            jArgWithType.type = JavaArgType::LONG;
+        } else if (std::holds_alternative<bool>(arg)) {
+            jArgWithType.value.z = static_cast<jboolean>(std::get<bool>(arg));
+            jArgWithType.type = JavaArgType::BOOLEAN;
+        }
+        jvalues.push_back(jArgWithType);
     }
     return jvalues;
 }
 
-template <typename T>
-T JvmManager::callJavaMethod(const std::string& methodName, const std::string& methodSig,
-                                  const std::vector<JavaArg>& args, const std::string& returnType, JobjectMapper<T> mapper) {
-    bool isAttached;
-    JNIEnv* env = getJNIEnv(isAttached);
-    if (!env) {
-        LOGE("Failed to obtain JNIEnv");
-        return;
+std::vector<jvalue> JvmManager::extractJvalues(const std::vector<JvmManager::JvalueWithType>& jvaluesWithType) {
+    std::vector<jvalue> jvalues;
+    for (const auto& jvalueWithType : jvaluesWithType) {
+        jvalues.push_back(jvalueWithType.value);  // jvalueWithType의 jvalue 필드만 추출
     }
-
-    jmethodID methodID = findJavaMethod(env, methodName, methodSig);
-    if (methodID == nullptr) {
-        if (isAttached) {
-            gJavaVM->DetachCurrentThread();
-        }
-        return;
-    }
-
-    // 인자가 있을 경우 변환, 없으면 빈 벡터 전달
-    std::vector<jvalue> jvalues = convertToJValues(env, args);
-
-    T result;
-
-    result = callJavaMethodWithReturn<T>(env, methodID, jvalues);
-
-    // 인자들에 대한 로컬 참조 해제
-    cleanupJValues(env, jvalues);
-
-    // 네이티브 스레드 해제
-    if (isAttached) {
-        gJavaVM->DetachCurrentThread();
-    }
-
-    return result;
+    return jvalues;
 }
 
 void JvmManager::callJavaMethod(const std::string& methodName, const std::string& methodSig,
@@ -111,11 +79,12 @@ void JvmManager::callJavaMethod(const std::string& methodName, const std::string
     }
 
     // 인자를 jvalue로 변환
-    std::vector<jvalue> jvalues = convertToJValues(env, args);
+    std::vector<JvmManager::JvalueWithType> jvaluesWithType  = convertToJValues(env, args);
+    std::vector<jvalue> jvalues = extractJvalues(jvaluesWithType);
 
     invokeJavaMethod(env, methodID, jvalues);  // 반환값 없는 메서드 호출
 
-    cleanupJValues(env, jvalues);
+    cleanupJValues(env, jvaluesWithType);
     if (isAttached) gJavaVM->DetachCurrentThread();
 }
 
@@ -125,27 +94,6 @@ void JvmManager::invokeJavaMethod(JNIEnv* env, jmethodID methodID, const std::ve
     } else {
         env->CallVoidMethodA(kotlinInstance, methodID, args.data());  // void 메서드 호출
     }
-}
-
-template <typename T>
-T JvmManager::invokeJavaMethodWithReturn(JNIEnv* env, jmethodID methodID, const std::vector<jvalue>& args, const std::string& returnType, JobjectMapper<T> mapper) {
-    jobject result = args.empty()
-                     ? env->CallObjectMethod(kotlinInstance, methodID)
-                     : env->CallObjectMethodA(kotlinInstance, methodID, args.data());
-
-    jclass expectedClass = env->FindClass(returnType.substr(1, returnType.size() - 2).c_str());
-
-    if (!env->IsInstanceOf(result, expectedClass)) {
-        LOGE("Type mismatch: expected %s, but got a different type.", returnType.c_str());
-        return T();
-    }
-
-    if (mapper) {
-        LOGE("Mapper function required for object type");
-        return T();
-    }
-
-    return mapper(env, result);
 }
 
 /* static method */

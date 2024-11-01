@@ -433,7 +433,7 @@ public class GattServerService extends Service {
             return;
         }
 
-        Log.d(TAG, "sendReport(): " + bytesToHex(report));
+//        Log.d(TAG, "sendReport(): " + bytesToHex(report));
 
         mReportCharacteristic.setValue(report);
 

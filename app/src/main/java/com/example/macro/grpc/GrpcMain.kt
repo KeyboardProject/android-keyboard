@@ -1,12 +1,12 @@
 package com.example.macro.grpc
 
-import android.util.Log
+import com.example.macro.macro.KeyboardMacro
 
-class GrpcMain {
+class GrpcMain(private val keyboardMacro: KeyboardMacro) {
     private var inputService: InputService
 
     init {
-        inputService = InputService()
+        inputService = InputService(keyboardMacro)
     }
 
     companion object {
