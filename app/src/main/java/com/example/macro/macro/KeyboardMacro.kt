@@ -17,8 +17,18 @@ import java.util.concurrent.locks.LockSupport
 import kotlin.concurrent.scheduleAtFixedRate
 
 data class KeyEvent(val delay: Long, val data: ByteArray)
+data class ComplexReplayRequest (
+    val tasks: List<ReplayTask>,   // 재생할 작업 목록
+    val repeatCount: Int           // 작업 목록 반복 횟수
+)
 
-class KeyboardMacro(private val context: Context) {
+data class ReplayTask(
+    val filename: String,          // 녹화 파일 이름
+    val delayAfter: Int,           // 파일 재생 후 지연 시간(초)
+    val repeatCount: Int           // 파일 반복 횟수
+)
+
+class KeyboardMacro private constructor(private val context: Context) {
     private val inputQueue = ConcurrentLinkedQueue<KeyEvent>()
     private var recordingFile: File? = null
     private var isRecording = false
@@ -26,6 +36,19 @@ class KeyboardMacro(private val context: Context) {
     private var startTime: Long = 0
     private var writer: FileWriter? = null
     private var gattServerService: GattServerService? = null
+    var stopFlag = true;
+
+    companion object {
+        @Volatile
+        private var instance: KeyboardMacro? = null
+        var TAG = "KeyboardMacro";
+
+        fun getInstance(context: Context): KeyboardMacro {
+            return instance ?: synchronized(this) {
+                instance ?: KeyboardMacro(context).also { instance = it }
+            }
+        }
+    }
 
     // 녹화 시작
     fun startRecord(fileName: String) {
@@ -34,7 +57,7 @@ class KeyboardMacro(private val context: Context) {
         recordingFile?.let {
             isRecording = true
             startTime = System.nanoTime()
-            writer = FileWriter(it, true)
+            writer = FileWriter(it, false)
 
             // 주기적으로 큐를 비우고 파일에 기록
             timer.scheduleAtFixedRate(0, 1000) {  // 1초마다 실행
@@ -96,6 +119,48 @@ class KeyboardMacro(private val context: Context) {
         return events
     }
 
+    fun stopReplay() {
+        stopFlag = true
+    }
+
+    private fun startReplay(fileName: String) {
+        val events = loadRecordedFile(fileName)
+
+        replayRecordFile(events) { event ->
+
+        }
+    }
+
+    fun startComplexReplay(request: ComplexReplayRequest) {
+        stopFlag = false
+        repeat(request.repeatCount) { j ->
+            for(task in request.tasks) {
+                repeat(task.repeatCount) { i ->
+                    startReplay(task.filename)
+
+                    if (stopFlag) {
+                        return
+                    };
+
+                    Thread.sleep(task.delayAfter.toLong());
+                }
+            }
+
+            if (stopFlag) {
+                return
+            };
+        }
+        stopFlag = true
+    }
+
+    fun startReplayDebug(fileName: String, onEvent: (KeyEvent) -> Unit) {
+        stopFlag = false
+        val events = loadRecordedFile(fileName)
+
+        replayRecordFile(events, onEvent)
+        stopFlag = true
+    }
+
     fun replayRecordFile(events: List<KeyEvent>, onEvent: (KeyEvent) -> Unit) {
         // 현재 시간을 기준으로 시작 시간 설정
         val startTime = System.nanoTime()
@@ -115,6 +180,16 @@ class KeyboardMacro(private val context: Context) {
             // 남은 시간이 1ms 이하일 때는 busy-wait로 전환
             while (System.nanoTime() < targetTime) {
                 // Busy-wait: 남은 시간이 매우 짧은 경우, System.nanoTime을 계속 확인하여 정확도 향상
+            }
+
+            if (stopFlag) {
+                gattServerService?.let { service ->
+                    val stopData = ByteArray(8) { 0 }
+                    service.sendReport(stopData)
+                    Log.d(TAG, "Stop signal sent: ${stopData.joinToString(", ")}")
+                } ?: Log.e(TAG, "GattServerService is not connected")
+                Log.d(TAG, "Macro replay stopped.")
+                break
             }
 
             val service = gattServerService
@@ -164,10 +239,11 @@ class KeyboardMacro(private val context: Context) {
     }
 
     fun cleanup() {
-        if (gattServerService != null) {
+        try {
             context.unbindService(serviceConnection)
-            gattServerService = null
-            Log.d(TAG, "Service connection unbound and cleaned up")
+            Log.d(TAG, "ServiceConnection unbound")
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "ServiceConnection already unbound")
         }
     }
 
@@ -179,9 +255,5 @@ class KeyboardMacro(private val context: Context) {
         } else {
             Log.e(TAG, "Service binding failed")
         }
-    }
-
-    companion object {
-        var TAG = "KeyboardMacro";
     }
 }

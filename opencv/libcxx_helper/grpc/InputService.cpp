@@ -3,6 +3,7 @@
 //
 
 #include "InputService.h"
+#include "../jni_helper.h"
 #include <jni.h>
 
 grpc::Status InputService::StartRecording(grpc::ServerContext* context, const StartRequest* request,
@@ -116,12 +117,88 @@ grpc::Status InputService::StopReplay(grpc::ServerContext* context, const StopRe
 }
 
 grpc::Status InputService::StartComplexReplay(grpc::ServerContext* context, const ComplexReplayRequest* request, StatusResponse* response) {
+    std::cout << "복잡한 요청 실행, 반복 횟수: " << request->repeatcount() << '\n';
 
-    std::cout<<"복잡한 요청 실행"<<request->repeatcount()<<'\n';
+    // ComplexReplayRequest를 Kotlin 데이터 클래스에 맞게 변환
+    std::string methodName = "startComplexReplay";
+    std::string methodSig = "(Lcom/example/macro/macro/ComplexReplayRequest;)V";
 
-    std::cout << "실행 종료: "<< std::endl;
+    bool isAttached;
+    JNIEnv* env = getJNIEnv(isAttached);  // JNIEnv 가져오기 함수 추가 필요
+
+    if (env == nullptr) {
+        std::cerr << "JNIEnv를 얻지 못했습니다." << std::endl;
+        return grpc::Status(grpc::StatusCode::INTERNAL, "JNI 환경을 가져오지 못했습니다.");
+    }
+
+    // ComplexReplayRequest를 나타내는 Java 객체 생성
+    jobject complexReplayRequestObj = createComplexReplayRequestObject(env, request);
+
+    // Java 메서드 호출
+    std::vector<JavaArg> args = { complexReplayRequestObj };
+    callJavaMethod(methodName, methodSig, args);
+
+    std::cout << "복잡한 요청 실행 종료" << std::endl;
     return grpc::Status::OK;
 }
+
+// ComplexReplayRequest를 Java 객체로 변환하는 함수
+jobject InputService::createComplexReplayRequestObject(JNIEnv* env, const ComplexReplayRequest* request) {
+    // ComplexReplayRequest 클래스와 생성자 ID 가져오기
+    jclass complexReplayRequestClass = findClass("com/example/macro/macro/ComplexReplayRequest");
+    jmethodID complexReplayRequestConstructor = env->GetMethodID(complexReplayRequestClass, "<init>", "(Ljava/util/List;I)V");
+
+    // List<ReplayTask> 변환
+    jobjectArray tasksArray = static_cast<jobjectArray>(createReplayTaskList(env,
+                                                                             request->tasks()));
+
+    // repeatCount를 전달
+    jint repeatCount = request->repeatcount();
+
+    // ComplexReplayRequest 객체 생성
+    jobject complexReplayRequestObj = env->NewObject(complexReplayRequestClass, complexReplayRequestConstructor, tasksArray, repeatCount);
+    return complexReplayRequestObj;
+}
+
+// ReplayTask 객체 리스트를 Java List로 변환하는 함수
+jobject InputService::createReplayTaskList(JNIEnv* env, const google::protobuf::RepeatedPtrField<ReplayTask>& tasks) {
+    // ArrayList 클래스 및 생성자 가져오기
+    jclass arrayListClass = env->FindClass("java/util/ArrayList");;
+    jmethodID arrayListConstructor = env->GetMethodID(arrayListClass, "<init>", "()V");
+    jobject arrayListObj = env->NewObject(arrayListClass, arrayListConstructor);
+
+    // ArrayList의 add 메서드 ID 가져오기
+    jmethodID addMethod = env->GetMethodID(arrayListClass, "add", "(Ljava/lang/Object;)Z");
+
+    // ReplayTask 객체들을 ArrayList에 추가
+    for (const auto& task : tasks) {
+        jobject replayTaskObj = createReplayTaskObject(env, task);
+        env->CallBooleanMethod(arrayListObj, addMethod, replayTaskObj);
+        env->DeleteLocalRef(replayTaskObj);
+    }
+    return arrayListObj;
+}
+
+// 단일 ReplayTask 객체를 Java 객체로 변환하는 함수
+jobject InputService::createReplayTaskObject(JNIEnv* env, const ReplayTask& task) {
+    // ReplayTask 클래스 및 생성자 ID 가져오기
+    jclass replayTaskClass = findClass("com/example/macro/macro/ReplayTask");
+    jmethodID replayTaskConstructor = env->GetMethodID(replayTaskClass, "<init>", "(Ljava/lang/String;II)V");
+
+    // ReplayTask의 필드 값들 변환
+    jstring filename = env->NewStringUTF(task.filename().c_str());
+    jint delayAfter = task.delayafter();
+    jint repeatCount = task.repeatcount();
+
+    // ReplayTask 객체 생성
+    jobject replayTaskObj = env->NewObject(replayTaskClass, replayTaskConstructor, filename, delayAfter, repeatCount);
+
+    // Local 참조 해제
+    env->DeleteLocalRef(filename);
+
+    return replayTaskObj;
+}
+
 
 grpc::Status InputService::GetMacroDetail(grpc::ServerContext* context, const GetMacroDetailRequest* request, GetMacroDetailResponse* response) {
 

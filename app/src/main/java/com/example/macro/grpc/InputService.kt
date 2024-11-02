@@ -1,6 +1,7 @@
 package com.example.macro.grpc
 
 import android.util.Log
+import com.example.macro.macro.ComplexReplayRequest
 import com.example.macro.macro.KeyEvent
 import com.example.macro.macro.KeyboardMacro
 
@@ -22,11 +23,7 @@ class InputService(private val keyboardMacro: KeyboardMacro): GrpcService() {
     }
 
     private fun startReplayDebug(writerPtr: Long, fileName: String) {
-        // 파일에서 KeyEvent 목록을 로드
-        val events = keyboardMacro.loadRecordedFile(fileName)
-
-        // replayRecordFile을 호출하고 각 이벤트에 대해 sendReplayKeyEvent를 호출
-        keyboardMacro.replayRecordFile(events) { event ->
+        keyboardMacro.startReplayDebug(fileName) { event ->
             // 이벤트의 설명 문자열을 생성
             val eventDescription = "Event at ${event.delay}ns"
 
@@ -43,6 +40,15 @@ class InputService(private val keyboardMacro: KeyboardMacro): GrpcService() {
 
     private fun getFileList(): List<String> {
         return keyboardMacro.getFileList();
+    }
+
+    private fun startComplexReplay(request: ComplexReplayRequest) {
+        Log.d(TAG, "afd $request")
+        keyboardMacro.startComplexReplay(request)
+    }
+
+    fun cleanup() {
+        nativeDestroyObject(nativeObj);
     }
 
     private external fun nativeCreateObject(port: Int): Long

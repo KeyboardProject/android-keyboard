@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
 
     private lateinit var grpcMain: GrpcMain;
 
-    private lateinit var keyboardMacro: KeyboardMacro;
+    private val keyboardMacro by lazy { KeyboardMacro.getInstance(this) }
 
     lateinit var permissionLauncher: ActivityResultLauncher<Array<String>>
 
@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
 //        }
 
         captureThread = CaptureThread(assets)
-        keyboardMacro = KeyboardMacro(this);
+//        keyboardMacro = KeyboardMacro(this);
         usbKeyboardHandler = UsbKeyboardHandler(this, captureThread, keyboardMacro)
 
         grpcMain = GrpcMain(keyboardMacro)
@@ -255,6 +255,8 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
     override fun onDestroy() {
         // UsbHandler의 리소스 해제 메서드 호출
         usbKeyboardHandler?.cleanup()
+        keyboardMacro.cleanup()
+        grpcMain.cleanup()
 
         super.onDestroy()
     }

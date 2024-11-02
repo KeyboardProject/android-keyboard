@@ -27,7 +27,7 @@ jmethodID JvmManager::findJavaMethod(JNIEnv* env, const std::string& methodName,
 
 void JvmManager::cleanupJValues(JNIEnv* env, const std::vector<JvmManager::JvalueWithType>& args) {
     for (const auto& arg : args) {
-        if (arg.type == JavaArgType::STRING && arg.value.l != nullptr) {
+        if ((arg.type == JavaArgType::STRING || arg.type == JavaArgType::OBJECT) && arg.value.l != nullptr) {
             env->DeleteLocalRef(arg.value.l);
         }
     }
@@ -49,6 +49,9 @@ std::vector<JvmManager::JvalueWithType> JvmManager::convertToJValues(JNIEnv* env
         } else if (std::holds_alternative<bool>(arg)) {
             jArgWithType.value.z = static_cast<jboolean>(std::get<bool>(arg));
             jArgWithType.type = JavaArgType::BOOLEAN;
+        } else if (std::holds_alternative<jobject>(arg)) { // jobject 타입인 경우
+            jArgWithType.value.l = std::get<jobject>(arg);
+            jArgWithType.type = JavaArgType::OBJECT;
         }
         jvalues.push_back(jArgWithType);
     }

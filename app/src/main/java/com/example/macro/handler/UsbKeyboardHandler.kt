@@ -110,7 +110,7 @@ class UsbKeyboardHandler(
 
         Thread {
             while (true) {
-//                Log.d(TAG, "Attempting to read from USB keyboard")
+//                Log.d(TAG, "Attempting to read` from USB keyboard")
                 // bulkTransfer 호출 후 결과 출력
                 val bytesRead = connection.bulkTransfer(endpoint, buffer, buffer.size, 5000)
 //                Log.d(TAG, "Bytes read result: $bytesRead")

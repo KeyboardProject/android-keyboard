@@ -19,7 +19,7 @@
 
 template <typename T>
 using JobjectMapper = std::function<T(JNIEnv*, jobject)>;
-using JavaArg = std::variant<std::string, int, long, bool>;
+using JavaArg = std::variant<std::string, int, long, bool, jobject>;
 
 
 class JvmManager {
@@ -28,6 +28,7 @@ class JvmManager {
         INT,
         LONG,
         BOOLEAN,
+        OBJECT,
         OTHER // 추가 가능
     };
 

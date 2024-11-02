@@ -44,6 +44,11 @@ class InputService final : public GrpcServer, Input::Service {
     grpc::Status ImportProfile(grpc::ServerContext* context, const ImportProfileRequest* request, StatusResponse* response) override;
     grpc::Status ExportProfile(grpc::ServerContext* context, const ExportProfileRequest* request, ExportProfileResponse* response) override;
 
+    jobject createComplexReplayRequestObject(JNIEnv* env, const ComplexReplayRequest* request);
+    jobject createReplayTaskObject(JNIEnv* env, const ReplayTask& task);
+    jobject createReplayTaskList(JNIEnv* env, const google::protobuf::RepeatedPtrField<ReplayTask>& tasks);
+
+
     void startMacroReplay(const std::string& filename, MacroReplayCallback callback);
 public:
     InputService(JNIEnv* env, jobject instance) {
