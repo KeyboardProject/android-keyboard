@@ -2,6 +2,7 @@
 #include <jni.h>
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
+#include <android/bitmap.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -29,21 +30,38 @@ cv::UMat readImageFromAssets(AAssetManager* mgr, const char* filename) {
 CaptureThread::CaptureThread(AAssetManager* mgr) : mgr(mgr) {
     LOGI("CaptureThread initialized");
     ready = false;
+    updateCharacterDetectionStatus(false);
 
     mDeviceHandle = NULL;
-
-//    captureThread = std::thread(&CaptureThread::captureFrame, this);
 }
 
 void CaptureThread::start() {
     if (!running) {
         running = true;
-//        captureThread = std::thread(&CaptureThread::captureFrame, this);
     }
 }
 
 void CaptureThread::stop() {
     running = false;
+}
+
+void CaptureThread::addObserver(CharacterDetectionObserver* observer) {
+    observers.push_back(observer);
+}
+
+void CaptureThread::removeObserver(CharacterDetectionObserver* observer) {
+    observers.erase(std::remove(observers.begin(), observers.end(), observer), observers.end());
+}
+
+void CaptureThread::notifyObservers() {
+    for (auto observer : observers) {
+        observer->onCharacterDetectionStatusChanged(isCharacterDetectionActive()); // 새로운 메서드로 변경
+    }
+}
+
+void CaptureThread::updateCharacterDetectionStatus(bool status) {
+    _isCharacterDetectionActive = status;
+    notifyObservers();  // 기존 옵저버 알림
 }
 
 cv::UMat CaptureThread::get_minimap() {
@@ -68,6 +86,10 @@ void CaptureThread::processFrame(const uint8_t* frameBuffer, int width, int heig
     }
 }
 
+void CaptureThread::stopMinimap(){
+    updateCharacterDetectionStatus(false);
+}
+
 void CaptureThread::captureFrame(cv::UMat currentFrame) {
     cv::UMat PLAYER_TEMPLATE = readImageFromAssets(mgr, "player_template.png");
     if (PLAYER_TEMPLATE.empty()) {
@@ -84,7 +106,6 @@ void CaptureThread::captureFrame(cv::UMat currentFrame) {
 
     frame = currentFrame.clone();
     frameReady = true;
-//    LOGI("frame change");
 
     if (mm_tl.x < 0 || mm_tl.y < 0 || mm_br.x > frame.cols || mm_br.y > frame.rows || mm_tl.x > mm_br.x || mm_tl.y > mm_br.y) {
         LOGE("Error: Minimap coordinates are out of bounds");
@@ -93,10 +114,19 @@ void CaptureThread::captureFrame(cv::UMat currentFrame) {
 
     cv::UMat minimap_frame = currentFrame(cv::Rect(mm_tl, mm_br));
 
-    std::vector<cv::Point> player_points = multi_match(minimap_frame, PLAYER_TEMPLATE, 0.8);
-    if (!player_points.empty()) {
-        cv::Point2d player_pos = convert_to_relative(player_points[0], minimap_frame.size());
-        LOGI("Player position: %f %f", player_pos.x, player_pos.y);
+    auto now = std::chrono::steady_clock::now();
+    if(isCharacterDetectionActive()) {
+        std::vector<cv::Point> player_points = multi_match(minimap_frame, PLAYER_TEMPLATE, 0.8);
+        if (!player_points.empty()) {
+            cv::Point2d player_pos = convert_to_relative(player_points[0], minimap_frame.size());
+            LOGI("Player position: %f %f", player_pos.x, player_pos.y);
+            lastDetectionTime = now;
+        }
+        else {
+            if (now - lastDetectionTime > detectionTimeout) {
+                updateCharacterDetectionStatus(false);
+            }
+        }
     }
 
     {
@@ -169,6 +199,7 @@ bool CaptureThread::calculateMinimap() {
             }
 
             minimap_ratio = static_cast<double>(mm_br.x - mm_tl.x) / (mm_br.y - mm_tl.y);
+            updateCharacterDetectionStatus(true);
         }
     }
 
@@ -227,52 +258,6 @@ cv::Point2d CaptureThread::convert_to_relative(const cv::Point &point, const cv:
     return cv::Point2d(x, y);
 }
 
-extern "C" {
-
-JNIEXPORT jlong JNICALL
-Java_com_example_macro_capture_CaptureThread_nativeCreateObject(JNIEnv *env, jobject obj,
-                                                                jobject assetManager) {
-    LOGI("creat object");
-    AAssetManager *mgr = AAssetManager_fromJava(env, assetManager);
-    CaptureThread *captureThread = new CaptureThread(mgr);
-    LOGI("create %p", captureThread);
-    return reinterpret_cast<jlong>(captureThread);
-}
-
-JNIEXPORT void JNICALL
-Java_com_example_macro_capture_CaptureThread_nativeDestroyObject(JNIEnv *env, jobject obj,
-                                                                 jlong nativeObj) {
-    delete reinterpret_cast<CaptureThread *>(nativeObj);
-}
-
-JNIEXPORT jobject JNICALL
-Java_com_example_macro_capture_CaptureThread_nativeGetMinimap(JNIEnv *env, jobject obj,
-                                                              jlong nativeObj) {
-    CaptureThread *captureThread = reinterpret_cast<CaptureThread *>(nativeObj);
-    cv::UMat minimap = captureThread->get_minimap();
-    cv::Mat minimapMat = minimap.getMat(cv::ACCESS_READ);
-    return env->NewDirectByteBuffer(minimapMat.data, minimap.total() * minimap.elemSize());
-}
-
-JNIEXPORT jobject JNICALL
-Java_com_example_macro_capture_CaptureThread_nativeGetVideo(JNIEnv *env, jobject obj,
-                                                            jlong nativeObj) {
-    CaptureThread *captureThread = reinterpret_cast<CaptureThread *>(nativeObj);
-    cv::UMat frame = captureThread->getVideo();
-    cv::Mat frameMat = frame.getMat(cv::ACCESS_READ);
-    return env->NewDirectByteBuffer(frameMat.data, frame.total() * frame.elemSize());
-}
-
-JNIEXPORT jboolean JNICALL
-Java_com_example_macro_capture_CaptureThread_nativeCalculateMinimap(JNIEnv *env, jobject obj,
-                                                                    jlong nativeObj) {
-    CaptureThread *captureThread = reinterpret_cast<CaptureThread *>(nativeObj);
-    return captureThread->calculateMinimap();
-}
-
-
-}
-
 cv::UMat CaptureThread::convertFrame(uvc_frame_t *frame) {
     // uvc_frame_t에서 프레임 데이터를 추출
     int width = frame->width;
@@ -285,7 +270,6 @@ cv::UMat CaptureThread::convertFrame(uvc_frame_t *frame) {
         cv::Mat yuyvMat(height, width, CV_8UC2, frame->data);
         cv::UMat bgrUMat;
         cv::cvtColor(yuyvMat, bgrUMat, cv::COLOR_YUV2BGR_YUYV);
-//        LOGI("convert yuyv");
         return bgrUMat;
 
         // bgrUMat을 필요한 처리나 사용처로 전달
@@ -299,7 +283,6 @@ cv::UMat CaptureThread::convertFrame(uvc_frame_t *frame) {
         }
         cv::UMat bgrUMat;
         jpegMat.copyTo(bgrUMat);
-//        LOGI("convert mjpeg");
         return bgrUMat;
     } else {
         LOGE("Unsupported frame format: %d\n", frame_format);
@@ -308,33 +291,12 @@ cv::UMat CaptureThread::convertFrame(uvc_frame_t *frame) {
 }
 
 void CaptureThread::frameCallback(uvc_frame_t *frame, void *ptr) {
-    // 프레임을 처리하는 코드 작성
-//    LOGI("Frame received! Frame format: %d, width: %d, height: %d\n",
-//           frame->frame_format, frame->width, frame->height);
-
     CaptureThread *pCaptureThread = dynamic_cast<CaptureThread *>(static_cast<CaptureThread *>(ptr));
 
-//    LOGI("callback %p", pCaptureThread);
 
     if (pCaptureThread) {
         cv::UMat bgrUMat = pCaptureThread->convertFrame(frame);
         pCaptureThread->captureFrame(bgrUMat);
-    } else {
-        LOGE("Invalid CaptureThread instance\n");
-    }
-}
-
-void cb(uvc_frame_t *frame, void *ptr) {
-    LOGI("Frame received! Frame format: %d, width: %d, height: %d\n",
-         frame->frame_format, frame->width, frame->height);
-
-    CaptureThread *pCaptureThread = dynamic_cast<CaptureThread *>(static_cast<CaptureThread *>(ptr));
-
-    LOGI("callback %p", pCaptureThread);
-
-    if (pCaptureThread) {
-        cv::UMat bgrUMat = pCaptureThread->convertFrame(frame);
-//        pCaptureThread->captureFrame(bgrUMat);
     } else {
         LOGE("Invalid CaptureThread instance\n");
     }
@@ -403,7 +365,25 @@ void CaptureThread::connectDevice(int vendor_id, int product_id, int file_descri
 
     return;
 }
-extern "C"
+
+extern "C" {
+
+JNIEXPORT jlong JNICALL
+Java_com_example_macro_capture_CaptureThread_nativeCreateObject(JNIEnv *env, jobject obj,
+                                                                jobject assetManager) {
+    LOGI("creat object");
+    AAssetManager *mgr = AAssetManager_fromJava(env, assetManager);
+    CaptureThread *captureThread = new CaptureThread(mgr);
+    LOGI("create %p", captureThread);
+    return reinterpret_cast<jlong>(captureThread);
+}
+
+JNIEXPORT void JNICALL
+Java_com_example_macro_capture_CaptureThread_nativeDestroyObject(JNIEnv *env, jobject obj,
+                                                                 jlong nativeObj) {
+    delete reinterpret_cast<CaptureThread *>(nativeObj);
+}
+
 JNIEXPORT void JNICALL
 Java_com_example_macro_capture_CaptureThread_nativeConnectDevice(JNIEnv *env, jobject thiz,
                                                                  jlong nativeObj, jint vendor_id,
@@ -418,77 +398,11 @@ Java_com_example_macro_capture_CaptureThread_nativeConnectDevice(JNIEnv *env, jo
     env->ReleaseStringUTFChars(usbfs, usbfs_str);
 }
 
-extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_macro_capture_CaptureThread_nativeStartMinimap(JNIEnv *env, jobject thiz,
                                                                 jlong nativeObj) {
     CaptureThread *captureThread = reinterpret_cast<CaptureThread *>(nativeObj);
     captureThread->calculateMinimap();
 }
-extern "C"
-JNIEXPORT void JNICALL
-Java_com_example_macro_UsbPermissionReceiver_nativeConnectDevice(JNIEnv *env, jobject thiz,
-                                                                 jint vendor_id, jint product_id,
-                                                                 jint file_descriptor, jint bus_num,
-                                                                 jint dev_addr, jstring usbfs) {
-    uvc_error_t result = UVC_ERROR_BUSY;
 
-    uvc_device_t *_mDevice;
-    uvc_device_handle_t *_mDeviceHandle = NULL;
-    uvc_context_t *_mContext = NULL;
-    uvc_stream_ctrl_t _ctrl;
-    char * _usbfs = reinterpret_cast<char *>(usbfs);
-
-    if (!_mDeviceHandle && file_descriptor) {
-        if (UNLIKELY(!_mContext)) {
-            result = uvc_init2(&_mContext, NULL, _usbfs);
-            LOGI("uvc_init2 %d", result);
-            if (UNLIKELY(result < 0)) {
-                LOGD("failed to init libuvc");
-                return;
-            }
-        }
-        file_descriptor = dup(file_descriptor);
-        LOGI("fd test: %d",file_descriptor);
-        LOGI("vendor %d", vendor_id);
-        LOGI("product %d", product_id);
-        LOGI("bus %d", bus_num);
-        LOGI("dev %d", dev_addr);
-
-
-        result = uvc_get_device_with_fd(_mContext, &_mDevice, vendor_id, product_id, NULL, file_descriptor, bus_num, dev_addr);
-        if (LIKELY(!result)) {
-            result = uvc_open(_mDevice, &_mDeviceHandle);
-            if (LIKELY(!result)) {
-                uvc_get_stream_ctrl_format_size(
-                        _mDeviceHandle, &_ctrl, /* 네고셔블한 스트림 파라미터 */
-                        UVC_FRAME_FORMAT_MJPEG, /* 프레임 포맷 */
-                        1280, 720, 30 /* 해상도와 프레임 속도 */
-                );
-                uvc_error_t result = uvc_start_streaming_bandwidth(
-                        _mDeviceHandle, &_ctrl, cb, NULL, 1.0f, 0);
-                LOGI("connect device");
-
-            } else {
-                // open出来なかった時
-                LOGE("could not open camera:err=%d", result);
-                uvc_unref_device(_mDevice);
-                _mDevice = NULL;
-                _mDeviceHandle = NULL;
-                close(file_descriptor);
-
-                return;
-            }
-        } else {
-            LOGE("could not find camera:err=%d", result);
-            close(file_descriptor);
-            return;
-        }
-    } else {
-        // カメラが既にopenしている時
-        LOGW("camera is already opened. you should release first");
-        return;
-    }
-
-    return;
 }

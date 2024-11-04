@@ -34,7 +34,7 @@ extern "C"
 JNIEXPORT jlong JNICALL
 Java_com_example_macro_grpc_RestartService_nativeCreateObject(JNIEnv *env, jobject thiz,
                                                               jint port) {
-    gJavaVM->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    JNIHepler::gJavaVM->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
     RestartService *pRestartService = new RestartService(env, thiz);
     pRestartService->init(port);
     return reinterpret_cast<jlong>(pRestartService);

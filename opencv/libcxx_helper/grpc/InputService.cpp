@@ -119,6 +119,11 @@ grpc::Status InputService::StopReplay(grpc::ServerContext* context, const StopRe
 grpc::Status InputService::StartComplexReplay(grpc::ServerContext* context, const ComplexReplayRequest* request, StatusResponse* response) {
     std::cout << "복잡한 요청 실행, 반복 횟수: " << request->repeatcount() << '\n';
 
+    // 미니맵 캡쳐 시작
+    if (captureThread) {
+        captureThread->calculateMinimap();
+    }
+
     // ComplexReplayRequest를 Kotlin 데이터 클래스에 맞게 변환
     std::string methodName = "startComplexReplay";
     std::string methodSig = "(Lcom/example/macro/macro/ComplexReplayRequest;)V";
@@ -138,6 +143,8 @@ grpc::Status InputService::StartComplexReplay(grpc::ServerContext* context, cons
     std::vector<JavaArg> args = { complexReplayRequestObj };
     callJavaMethod(methodName, methodSig, args);
 
+    this->captureThread->stopMinimap();
+
     std::cout << "복잡한 요청 실행 종료" << std::endl;
     return grpc::Status::OK;
 }
@@ -145,7 +152,7 @@ grpc::Status InputService::StartComplexReplay(grpc::ServerContext* context, cons
 // ComplexReplayRequest를 Java 객체로 변환하는 함수
 jobject InputService::createComplexReplayRequestObject(JNIEnv* env, const ComplexReplayRequest* request) {
     // ComplexReplayRequest 클래스와 생성자 ID 가져오기
-    jclass complexReplayRequestClass = findClass("com/example/macro/macro/ComplexReplayRequest");
+    jclass complexReplayRequestClass = JNIHepler::findClass("com/example/macro/macro/ComplexReplayRequest");
     jmethodID complexReplayRequestConstructor = env->GetMethodID(complexReplayRequestClass, "<init>", "(Ljava/util/List;I)V");
 
     // List<ReplayTask> 변환
@@ -182,7 +189,7 @@ jobject InputService::createReplayTaskList(JNIEnv* env, const google::protobuf::
 // 단일 ReplayTask 객체를 Java 객체로 변환하는 함수
 jobject InputService::createReplayTaskObject(JNIEnv* env, const ReplayTask& task) {
     // ReplayTask 클래스 및 생성자 ID 가져오기
-    jclass replayTaskClass = findClass("com/example/macro/macro/ReplayTask");
+    jclass replayTaskClass = JNIHepler::findClass("com/example/macro/macro/ReplayTask");
     jmethodID replayTaskConstructor = env->GetMethodID(replayTaskClass, "<init>", "(Ljava/lang/String;II)V");
 
     // ReplayTask의 필드 값들 변환
@@ -312,11 +319,23 @@ void InputService::init(int port) {
     initServer(port, this);
 }
 
+void InputService::onCharacterDetectionStatusChanged(bool newStatus) {
+    LOGI("isCharacterDetectionActive 상태가 변경되었습니다: %s", newStatus ? "true" : "false");
+    if (!newStatus) {
+        std::string methodName = "stopReplay";
+        std::string methodSig = "()V";
+        std::vector<JavaArg> args;
+
+        callJavaMethod(methodName, methodSig, args);
+    }
+}
+
 extern "C"
 JNIEXPORT jlong JNICALL
-Java_com_example_macro_grpc_InputService_nativeCreateObject(JNIEnv *env, jobject thiz, jint port) {
-    gJavaVM->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-    InputService *pInputService = new InputService(env, thiz);
+Java_com_example_macro_grpc_InputService_nativeCreateObject(JNIEnv *env, jobject thiz, jint port, jlong captureThreadPtr) {
+    JNIHepler::gJavaVM->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    CaptureThread* pCaptureThread = reinterpret_cast<CaptureThread *>(captureThreadPtr);
+    InputService *pInputService = new InputService(env, thiz, pCaptureThread);
     pInputService->init(port);
     return reinterpret_cast<jlong>(pInputService);
 }

@@ -1,9 +1,10 @@
 package com.example.macro.grpc
 
 import androidx.compose.runtime.key
+import com.example.macro.capture.CaptureThread
 import com.example.macro.macro.KeyboardMacro
 
-class GrpcMain(private val keyboardMacro: KeyboardMacro) {
+class GrpcMain(private val keyboardMacro: KeyboardMacro, private val captureThread: CaptureThread) {
     fun cleanup() {
         inputService.cleanup()
     }
@@ -12,7 +13,7 @@ class GrpcMain(private val keyboardMacro: KeyboardMacro) {
     private var restartService: RestartService
 
     init {
-        inputService = InputService(keyboardMacro)
+        inputService = InputService(keyboardMacro, captureThread)
         restartService = RestartService(keyboardMacro)
     }
 

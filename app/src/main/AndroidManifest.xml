@@ -19,6 +19,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -41,14 +42,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <receiver
-            android:name=".UsbPermissionReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.example.macro.USB_PERMISSION" />
-            </intent-filter>
-        </receiver>
 <!--        <service-->
 <!--            android:name=".grpc.VideoServiceServer"-->
 <!--            android:exported="true" />-->

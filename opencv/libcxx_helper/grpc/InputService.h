@@ -11,6 +11,7 @@
 #include "GrpcServer.h"
 #include "../jni_helper.h"
 #include "../jvm/JvmManager.h"
+#include "../CaptureThread.h"
 
 #define INPUT_SERVICE_LOG_TAG "InputService"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, INPUT_SERVICE_LOG_TAG, __VA_ARGS__)
@@ -18,7 +19,8 @@
 
 using MacroReplayCallback = std::function<void(const std::string&)>;
 
-class InputService final : public GrpcServer, Input::Service {
+class InputService final : public GrpcServer, Input::Service, public CharacterDetectionObserver {
+    CaptureThread* captureThread;
 
     grpc::Status StartRecording(grpc::ServerContext* context, const StartRequest* request,
                                 StatusResponse* response) override;
@@ -38,8 +40,7 @@ class InputService final : public GrpcServer, Input::Service {
                                 GetMacroDetailResponse* response) override;
     grpc::Status DeleteMacros(grpc::ServerContext* context, const DeleteMacrosRequest* request,
                               StatusResponse* response) override;
-    grpc::Status StartComplexReplay(grpc::ServerContext* context, const ComplexReplayRequest* request,
-                                    StatusResponse* response) override;
+    grpc::Status StartComplexReplay(grpc::ServerContext* context, const ComplexReplayRequest* request, StatusResponse* response) override;
 
     grpc::Status ImportProfile(grpc::ServerContext* context, const ImportProfileRequest* request, StatusResponse* response) override;
     grpc::Status ExportProfile(grpc::ServerContext* context, const ExportProfileRequest* request, ExportProfileResponse* response) override;
@@ -48,14 +49,23 @@ class InputService final : public GrpcServer, Input::Service {
     jobject createReplayTaskObject(JNIEnv* env, const ReplayTask& task);
     jobject createReplayTaskList(JNIEnv* env, const google::protobuf::RepeatedPtrField<ReplayTask>& tasks);
 
-
     void startMacroReplay(const std::string& filename, MacroReplayCallback callback);
+
+    void onCharacterDetectionStatusChanged(bool newStatus) override;
 public:
-    InputService(JNIEnv* env, jobject instance) {
+    InputService(JNIEnv* env, jobject instance, CaptureThread* pCaptureThread) {
         // Java 객체를 전역 참조로 저장
+        this->captureThread = pCaptureThread;
         this->kotlinInstance = env->NewGlobalRef(instance);
+        this->captureThread->addObserver(this);
     }
     void init(int port);
+};
+
+class CharacterCheckObserver {
+public:
+    virtual ~CharacterCheckObserver() = default;
+    virtual void onCharacterCheckChanged(bool newStatus) = 0;
 };
 
 

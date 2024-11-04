@@ -6,8 +6,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import android.util.Log
-import com.example.macro.handler.UsbKeyboardHandler
-import com.example.macro.handler.UsbKeyboardHandler.Companion
+import com.example.macro.handler.UsbDeviceHandler
 import com.example.macro.keyboard.GattServerService
 import java.io.File
 import java.io.FileWriter
@@ -197,7 +196,7 @@ class KeyboardMacro private constructor(private val context: Context) {
                 // 서비스의 sendReport() 메서드에 keyData 전달
                 service.sendReport(event.data);
             } else {
-                Log.e(com.example.macro.handler.UsbKeyboardHandler.TAG, "GattServerService is not connected")
+                Log.e(com.example.macro.handler.UsbDeviceHandler.TAG, "GattServerService is not connected")
             }
 
             // 키 입력 이벤트 전송을 위한 콜백 호출
@@ -210,15 +209,15 @@ class KeyboardMacro private constructor(private val context: Context) {
             val binder = service as? GattServerService.LocalBinder
             if (binder != null) {
                 gattServerService = binder.getService()
-                Log.d(UsbKeyboardHandler.TAG, "Service connected")
+                Log.d(UsbDeviceHandler.TAG, "Service connected")
             } else {
-                Log.e(UsbKeyboardHandler.TAG, "Service binding failed")
+                Log.e(UsbDeviceHandler.TAG, "Service binding failed")
             }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
             gattServerService = null
-            Log.d(UsbKeyboardHandler.TAG, "Service disconnected")
+            Log.d(UsbDeviceHandler.TAG, "Service disconnected")
         }
     }
 

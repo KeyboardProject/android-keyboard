@@ -1,13 +1,21 @@
 package com.example.macro.capture
 
+import android.content.ContentValues
+import android.content.Context
 import android.content.res.AssetManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
+import org.opencv.android.Utils
+import org.opencv.core.Mat
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 
-class CaptureThread(assets: AssetManager) {
+class CaptureThread(assets: AssetManager, val context: Context) {
     private var nativeObj: Long
     private val assetManager: AssetManager = assets
 
@@ -16,16 +24,12 @@ class CaptureThread(assets: AssetManager) {
         Log.d("CaptureThread", "capture thread pointer $nativeObj")
     }
 
-    fun getMinimap(): ByteBuffer {
-        return nativeGetMinimap(nativeObj)
-    }
+//    fun getVideo(): ByteBuffer {
+//        return nativeGetVideo(nativeObj)
+//    }
 
-    fun getVideo(): ByteBuffer {
-        return nativeGetVideo(nativeObj)
-    }
-
-    fun calculateMinimap(): Boolean {
-        return nativeCalculateMinimap(nativeObj)
+    fun getNativPrt(): Long {
+        return nativeObj;
     }
 
     fun startMinimap() {
@@ -52,11 +56,10 @@ class CaptureThread(assets: AssetManager) {
         }
     }
 
+
+
     private external fun nativeCreateObject(assetManager: AssetManager): Long
     private external fun nativeDestroyObject(nativeObj: Long)
-    private external fun nativeGetMinimap(nativeObj: Long): ByteBuffer
-    private external fun nativeGetVideo(nativeObj: Long): ByteBuffer
-    private external fun nativeCalculateMinimap(nativeObj: Long): Boolean
     external fun nativeConnectDevice(nativeObj: Long, vendorId: Int, productId: Int, fileDescriptor: Int, busNum: Int, devAddr: Int, usbfs: String)
     external fun nativeStartMinimap(nativeObj: Long)
 

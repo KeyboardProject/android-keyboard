@@ -30,11 +30,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.macro.capture.CaptureThread
 import com.example.macro.grpc.GrpcMain
-import com.example.macro.handler.UsbKeyboardHandler
+import com.example.macro.handler.UsbDeviceHandler
 import com.example.macro.keyboard.GattServerService
 import com.example.macro.macro.KeyboardMacro
 import com.example.macro.ui.theme.MacroTheme
-import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -42,10 +41,8 @@ import java.nio.ByteBuffer
 
 
 class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
-    private var usbKeyboardHandler: UsbKeyboardHandler? = null
+    private var usbKeyboardHandler: UsbDeviceHandler? = null
     private lateinit var captureThread: CaptureThread
-
-    private val usbPermissionReceiver = UsbPermissionReceiver()
 
     private lateinit var textureView: TextureView
 
@@ -67,7 +64,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
                                 textureView = this
                                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                                     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                                        initializeUsbCaptureDevice(surface)
+
                                     }
 
                                     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
@@ -78,6 +75,14 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
                         },
                         modifier = Modifier.fillMaxSize()
                     )
+//                    AndroidView(
+//                        factory = { context ->
+//                            SurfaceView(context).apply {
+//                                holder.addCallback(this@MainActivity)  // MainActivity를 Callback으로 등록
+//                            }
+//                        },
+//                        modifier = Modifier.fillMaxSize()
+//                    )
                     MinimapButton {
                         captureThread?.startMinimap()
                     }
@@ -101,20 +106,15 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
             }
         }
 
+        captureThread = CaptureThread(assets, this)
 
+        usbKeyboardHandler = UsbDeviceHandler(this, captureThread, keyboardMacro)
+
+        grpcMain = GrpcMain(keyboardMacro, captureThread)
+
+        initializeUsbDevice()
         checkAndRequestPermissions()
 
-//        if (!OpenCVLoader.initDebug()) {
-//            Log.e(TAG, "OpenCV 초기화 실패!")
-//        } else {
-//            Log.d(TAG, "OpenCV 초기화 성공!!!!!")
-//        }
-
-        captureThread = CaptureThread(assets)
-//        keyboardMacro = KeyboardMacro(this);
-        usbKeyboardHandler = UsbKeyboardHandler(this, captureThread, keyboardMacro)
-
-        grpcMain = GrpcMain(keyboardMacro)
     }
 
     private fun showPermissionDeniedDialog(deniedPermissions: List<String>) {
@@ -189,7 +189,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
         }
     }
 
-    private fun initializeUsbCaptureDevice(surfaceTexture: SurfaceTexture) {
+    private fun initializeUsbDevice() {
         val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
         val deviceList = usbManager.deviceList
         val deviceIterator: Iterator<UsbDevice> = deviceList.values.iterator()
@@ -199,15 +199,13 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
             val permissionIntent = PendingIntent.getBroadcast(
                 this,
                 0,
-                Intent(UsbPermissionReceiver.ACTION_USB_PERMISSION).apply {
+                Intent(UsbDeviceHandler.ACTION_USB_PERMISSION).apply {
                     setPackage(packageName)
                 },
                 PendingIntent.FLAG_MUTABLE
             )
             usbManager.requestPermission(device, permissionIntent)
         }
-
-        usbPermissionReceiver.setSurfaceTexture(surfaceTexture)
     }
 
     override fun onStart() {
@@ -216,18 +214,19 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        Thread {
-            while (true) {
-                val frameBuffer = captureThread.getVideo()
-                if (frameBuffer == null) continue  // 프레임이 없는 경우 건너뛰기
-
-                val bitmap = byteBufferToBitmap(frameBuffer)
-                val canvas = holder.lockCanvas()
-                canvas?.drawBitmap(bitmap, 0f, 0f, null)
-                holder.unlockCanvasAndPost(canvas)
-                Thread.sleep(100) // Adjust this delay to match your capture frame rate
-            }
-        }.start()
+//        Log.d(TAG, "surface")
+//        Thread {
+//            while (true) {
+//                val frameBuffer = captureThread.getVideo()
+//                if (frameBuffer == null) continue  // 프레임이 없는 경우 건너뛰기
+//
+//                val bitmap = byteBufferToBitmap(frameBuffer)
+//                val canvas = holder.lockCanvas()
+//                canvas?.drawBitmap(bitmap, 0f, 0f, null)
+//                holder.unlockCanvasAndPost(canvas)
+//                Thread.sleep(100) // Adjust this delay to match your capture frame rate
+//            }
+//        }.start()
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -240,8 +239,10 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
 
     private fun byteBufferToBitmap(buffer: ByteBuffer): Bitmap {
         val mat = Mat(720, 1280, CvType.CV_8UC4)
-        buffer.position(0)
-        mat.put(0, 0, buffer.array())
+        val byteArray = ByteArray(buffer.remaining()) // ByteBuffer의 데이터를 저장할 ByteArray 생성
+        buffer.get(byteArray) // ByteBuffer에서 ByteArray로 데이터 복사
+        mat.put(0, 0, byteArray) // Mat에 데이터를 설정
+
         val bitmap = Bitmap.createBitmap(mat.cols(), mat.rows(), Bitmap.Config.ARGB_8888)
         Utils.matToBitmap(mat, bitmap)
         return bitmap

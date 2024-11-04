@@ -1,14 +1,15 @@
 package com.example.macro.grpc
 
 import android.util.Log
+import com.example.macro.capture.CaptureThread
 import com.example.macro.macro.ComplexReplayRequest
 import com.example.macro.macro.KeyEvent
 import com.example.macro.macro.KeyboardMacro
 
-class InputService(private val keyboardMacro: KeyboardMacro): GrpcService() {
+class InputService(private val keyboardMacro: KeyboardMacro, private val captureThread: CaptureThread): GrpcService() {
 
     init {
-        nativeObj = nativeCreateObject(50051)
+        nativeObj = nativeCreateObject(50051, captureThread.getNativPrt())
         Log.d(TAG, "input service pointer $nativeObj")
     }
 
@@ -43,7 +44,6 @@ class InputService(private val keyboardMacro: KeyboardMacro): GrpcService() {
     }
 
     private fun startComplexReplay(request: ComplexReplayRequest) {
-        Log.d(TAG, "afd $request")
         keyboardMacro.startComplexReplay(request)
     }
 
@@ -51,7 +51,12 @@ class InputService(private val keyboardMacro: KeyboardMacro): GrpcService() {
         nativeDestroyObject(nativeObj);
     }
 
-    private external fun nativeCreateObject(port: Int): Long
+    private fun stopReplay() {
+        Log.d(TAG, "stop replay")
+        keyboardMacro.stopReplay();
+    }
+
+    private external fun nativeCreateObject(port: Int, captureThreadPtr: Long): Long
     private external fun nativeDestroyObject(nativeObj: Long)
     private external fun sendReplayKeyEvent(writerPtr: Long, eventDescription: String)
     companion object {

@@ -8,8 +8,8 @@ JNIEnv* JvmManager::getJNIEnv(bool& isAttached) {
     JNIEnv* env;
     isAttached = false;
 
-    if (gJavaVM->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
-        gJavaVM->AttachCurrentThread(&env, nullptr);
+    if (JNIHepler::gJavaVM->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
+        JNIHepler::gJavaVM->AttachCurrentThread(&env, nullptr);
         isAttached = true;
     }
 
@@ -77,7 +77,7 @@ void JvmManager::callJavaMethod(const std::string& methodName, const std::string
 
     jmethodID methodID = findJavaMethod(env, methodName, methodSig);
     if (methodID == nullptr) {
-        if (isAttached) gJavaVM->DetachCurrentThread();
+        if (isAttached) JNIHepler::gJavaVM->DetachCurrentThread();
         return;
     }
 
@@ -88,7 +88,7 @@ void JvmManager::callJavaMethod(const std::string& methodName, const std::string
     invokeJavaMethod(env, methodID, jvalues);  // 반환값 없는 메서드 호출
 
     cleanupJValues(env, jvaluesWithType);
-    if (isAttached) gJavaVM->DetachCurrentThread();
+    if (isAttached) JNIHepler::gJavaVM->DetachCurrentThread();
 }
 
 void JvmManager::invokeJavaMethod(JNIEnv* env, jmethodID methodID, const std::vector<jvalue>& args) {

@@ -65,7 +65,7 @@ protected:
         jmethodID methodID = findJavaMethod(env, methodName, methodSig);
         if (methodID == nullptr) {
             if (isAttached) {
-                gJavaVM->DetachCurrentThread();
+                JNIHepler::gJavaVM->DetachCurrentThread();
             }
             return T();
         }
@@ -83,7 +83,7 @@ protected:
 
         // 네이티브 스레드 해제
         if (isAttached) {
-            gJavaVM->DetachCurrentThread();
+            JNIHepler::gJavaVM->DetachCurrentThread();
         }
 
         return result;

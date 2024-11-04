@@ -17,7 +17,7 @@ import com.example.macro.keyboard.GattServerService
 import com.example.macro.macro.KeyboardMacro
 import com.example.macro.test.UsbHelper
 
-class UsbKeyboardHandler(
+class UsbDeviceHandler(
     private val context: Context,
     private var captureThread: CaptureThread?,
     private val keyboardMacro: KeyboardMacro
@@ -53,7 +53,7 @@ class UsbKeyboardHandler(
                 ACTION_USB_PERMISSION -> {
                     synchronized(this) {
                         val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
-                        Log.d(com.example.macro.UsbPermissionReceiver.TAG, "USB permission result for device $device")
+                        Log.d(TAG, "USB permission result for device $device")
                         if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
                             device?.apply {
                                 Thread {
@@ -110,10 +110,8 @@ class UsbKeyboardHandler(
 
         Thread {
             while (true) {
-//                Log.d(TAG, "Attempting to read` from USB keyboard")
                 // bulkTransfer 호출 후 결과 출력
                 val bytesRead = connection.bulkTransfer(endpoint, buffer, buffer.size, 5000)
-//                Log.d(TAG, "Bytes read result: $bytesRead")
                 if (bytesRead > 0) {
                   val keyData = buffer.copyOf(bytesRead)
                     // 서비스로 키 이벤트 전달
@@ -126,8 +124,6 @@ class UsbKeyboardHandler(
                     }
 
                     keyboardMacro.addInput(keyData)  // KeyboardMacro에 이벤트 추가
-//                    Log.d(TAG, "Bytes read from USB Keyboard: ${buffer.joinToString(" ") { "%02x".format(it) }}")
-                    // keyboardSender.sendUsbHidReport(buffer.copyOf(bytesRead))
                 }
             }
         }.start()
@@ -147,7 +143,7 @@ class UsbKeyboardHandler(
             Log.d(TAG, "$vendorId $productId $busNum $devAddr $usbfs")
             Log.d(TAG, "capture thread null? $captureThread")
             captureThread?.connectDevice(vendorId, productId, fileDescriptor, busNum, devAddr, usbfs)
-            Log.d(com.example.macro.UsbPermissionReceiver.TAG, "Initializing End USB capture")
+            Log.d(TAG, "Initializing End USB capture")
         }
     }
 
@@ -195,7 +191,5 @@ class UsbKeyboardHandler(
     companion object {
         const val TAG = "UsbHandler"
         const val ACTION_USB_PERMISSION = "com.example.macro.USB_PERMISSION"
-        const val ACTION_USB_PERMISSION_GRANTED = "com.example.macro.USB_PERMISSION_GRANTED"
-        const val ACTION_USB_PERMISSION_DENIED = "com.example.macro.USB_PERMISSION_DENIED"
     }
 }

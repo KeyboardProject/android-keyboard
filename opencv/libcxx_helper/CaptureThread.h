@@ -22,14 +22,24 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+class CharacterDetectionObserver {
+public:
+    virtual ~CharacterDetectionObserver() = default;
+    virtual void onCharacterDetectionStatusChanged(bool newStatus) = 0;
+};
+
 class CaptureThread {
 public:
+    std::mutex mtx;
+    std::condition_variable cv;
+
     CaptureThread(AAssetManager* mgr);
     void start();
     void stop();
     void processFrame(const uint8_t* frameBuffer, int width, int height);
     void captureFrame(cv::UMat currentFrame);
     bool calculateMinimap();
+    void stopMinimap();
     cv::UMat get_minimap();
     cv::UMat getVideo();
     void connectDevice(int vendor_id, int product_id,
@@ -38,6 +48,12 @@ public:
 
     cv::UMat convertFrame(uvc_frame_t *frame);
 
+    cv::UMat getFrame();
+
+    void addObserver(CharacterDetectionObserver* observer);
+    void removeObserver(CharacterDetectionObserver* observer);
+
+    bool isCharacterDetectionActive() const { return _isCharacterDetectionActive; }
 private:
     AAssetManager* mgr;  // 추가
     cv::UMat frame;
@@ -57,14 +73,21 @@ private:
     uvc_context_t *mContext;
     uvc_stream_ctrl_t ctrl;
 
+    std::vector<CharacterDetectionObserver*> observers;
+
+    std::atomic_bool _isCharacterDetectionActive;
+
     std::pair<cv::Point, cv::Point> single_match(const cv::UMat &image, const cv::UMat &templ);
     std::vector<cv::Point> multi_match(const cv::UMat &image, const cv::UMat &templ, double threshold);
     cv::Point2d convert_to_relative(const cv::Point &point, const cv::Size &size);
 
     static void frameCallback(uvc_frame_t *frame, void *ptr);
 
+    void notifyObservers(); // 상태 변경 알림 메서드
+    void updateCharacterDetectionStatus(bool status); // isCharacterDetectionActive 상태를 업데이트하고 알림 전송
 
-
+    std::chrono::time_point<std::chrono::steady_clock> lastDetectionTime;
+    const std::chrono::seconds detectionTimeout = std::chrono::seconds(3); // 3초 제한
 };
 
 extern "C" {
