@@ -11,8 +11,10 @@ class GrpcMain(private val keyboardMacro: KeyboardMacro, private val captureThre
 
     private var inputService: InputService
     private var restartService: RestartService
+    private var videoService: VideoService
 
     init {
+        videoService = VideoService(captureThread)
         inputService = InputService(keyboardMacro, captureThread)
         restartService = RestartService(keyboardMacro)
     }
