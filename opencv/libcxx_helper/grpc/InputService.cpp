@@ -121,7 +121,7 @@ grpc::Status InputService::StartComplexReplay(grpc::ServerContext* context, cons
 
     // 미니맵 캡쳐 시작
     if (captureThread) {
-        captureThread->calculateMinimap();
+        captureThread->initCaptureMinimap();
     }
 
     // ComplexReplayRequest를 Kotlin 데이터 클래스에 맞게 변환

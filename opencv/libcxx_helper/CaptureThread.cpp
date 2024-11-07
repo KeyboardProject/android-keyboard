@@ -29,6 +29,11 @@ cv::UMat readImageFromAssets(AAssetManager* mgr, const char* filename) {
 
 CaptureThread::CaptureThread(AAssetManager* mgr) : mgr(mgr) {
     LOGI("CaptureThread initialized");
+
+    MM_TL_TEMPLATE = readImageFromAssets(mgr, "minimap_tl_template.png");
+    MM_BR_TEMPLATE = readImageFromAssets(mgr, "minimap_br_template.png");
+    PLAYER_TEMPLATE = readImageFromAssets(mgr, "player_template.png");
+
     ready = false;
     updateCharacterDetectionStatus(false);
 
@@ -64,7 +69,7 @@ void CaptureThread::updateCharacterDetectionStatus(bool status) {
     notifyObservers();  // 기존 옵저버 알림
 }
 
-cv::UMat CaptureThread::get_minimap() {
+cv::UMat CaptureThread::getMinimap() {
     std::shared_lock<std::shared_mutex> lock(minimap_frame_mutex);
     return minimap.clone();
 }
@@ -91,21 +96,13 @@ void CaptureThread::stopMinimap(){
 }
 
 void CaptureThread::captureFrame(cv::UMat currentFrame) {
-    cv::UMat PLAYER_TEMPLATE = readImageFromAssets(mgr, "player_template.png");
-    if (PLAYER_TEMPLATE.empty()) {
-        LOGE("Error: Could not load player_template.png");
-        return;
+    {
+        std::unique_lock<std::shared_mutex> lock(frame_mutex, std::try_to_lock);
+        if (lock.owns_lock()) {
+            frame = currentFrame.clone();
+            frameReady = true;
+        }
     }
-
-
-    std::unique_lock<std::shared_mutex> lock(frame_mutex, std::try_to_lock);
-    if (!lock.owns_lock()) {
-        LOGE("Could not acquire frame mutex lock");
-        return;
-    }
-
-    frame = currentFrame.clone();
-    frameReady = true;
 
     if (mm_tl.x < 0 || mm_tl.y < 0 || mm_br.x > frame.cols || mm_br.y > frame.rows || mm_tl.x > mm_br.x || mm_tl.y > mm_br.y) {
         LOGE("Error: Minimap coordinates are out of bounds");
@@ -115,11 +112,12 @@ void CaptureThread::captureFrame(cv::UMat currentFrame) {
     cv::UMat minimap_frame = currentFrame(cv::Rect(mm_tl, mm_br));
 
     auto now = std::chrono::steady_clock::now();
+
     if(isCharacterDetectionActive()) {
         std::vector<cv::Point> player_points = multi_match(minimap_frame, PLAYER_TEMPLATE, 0.8);
         if (!player_points.empty()) {
             cv::Point2d player_pos = convert_to_relative(player_points[0], minimap_frame.size());
-            LOGI("Player position: %f %f", player_pos.x, player_pos.y);
+//            LOGI("Player position1: %f %f", player_pos.x, player_pos.y);
             lastDetectionTime = now;
         }
         else {
@@ -139,26 +137,14 @@ void CaptureThread::captureFrame(cv::UMat currentFrame) {
     }
 }
 
+void CaptureThread::initCaptureMinimap() {
+    {
+        lastDetectionTime = std::chrono::steady_clock::now();
+        updateCharacterDetectionStatus(true);
+    }
+}
+
 bool CaptureThread::calculateMinimap() {
-    LOGI("calculateMinimap");
-    cv::UMat MM_TL_TEMPLATE = readImageFromAssets(mgr, "minimap_tl_template.png");
-    if (MM_TL_TEMPLATE.empty()) {
-        LOGE("Error: Could not load minimap_tl_template.png");
-        return false;
-    }
-    cv::UMat MM_BR_TEMPLATE = readImageFromAssets(mgr, "minimap_br_template.png");
-    if (MM_BR_TEMPLATE.empty()) {
-        LOGE("Error: Could not load minimap_br_template.png");
-        return false;
-    }
-    cv::UMat PLAYER_TEMPLATE = readImageFromAssets(mgr, "player_template.png");
-    if (PLAYER_TEMPLATE.empty()) {
-        LOGE("Error: Could not load player_template.png");
-        return false;
-    }
-
-    LOGI("Templates loaded successfully");
-
     const int PT_WIDTH = PLAYER_TEMPLATE.cols;
     const int PT_HEIGHT = PLAYER_TEMPLATE.rows;
 
@@ -199,7 +185,12 @@ bool CaptureThread::calculateMinimap() {
             }
 
             minimap_ratio = static_cast<double>(mm_br.x - mm_tl.x) / (mm_br.y - mm_tl.y);
-            updateCharacterDetectionStatus(true);
+            cv::UMat minimap_frame = currentFrame(cv::Rect(mm_tl, mm_br));
+
+            {
+                std::unique_lock<std::shared_mutex> lock(minimap_frame_mutex);
+                minimap = minimap_frame.clone();
+            }
         }
     }
 
@@ -259,33 +250,31 @@ cv::Point2d CaptureThread::convert_to_relative(const cv::Point &point, const cv:
 }
 
 cv::UMat CaptureThread::convertFrame(uvc_frame_t *frame) {
-    // uvc_frame_t에서 프레임 데이터를 추출
     int width = frame->width;
     int height = frame->height;
-    int frame_format = frame->frame_format;
+    int frame_forUMat = frame->frame_format;
 
-    // 적절한 형식을 사용하여 UMat으로 변환 (예: UVC_FRAME_FORMAT_YUYV인 경우)
-    if (frame_format == UVC_FRAME_FORMAT_YUYV) {
+    if (frame_forUMat == UVC_FRAME_FORMAT_YUYV) {
         // YUYV 데이터를 BGR로 변환
-        cv::Mat yuyvMat(height, width, CV_8UC2, frame->data);
+        cv::Mat yuyvMat(height, width, CV_8UC4, frame->data);
         cv::UMat bgrUMat;
         cv::cvtColor(yuyvMat, bgrUMat, cv::COLOR_YUV2BGR_YUYV);
-        return bgrUMat;
 
-        // bgrUMat을 필요한 처리나 사용처로 전달
-    } else if (frame_format == UVC_FRAME_FORMAT_MJPEG) {
-        // MJPEG 데이터를 디코딩하여 BGR로 변환
+        return bgrUMat;
+    } else if (frame_forUMat == UVC_FRAME_FORMAT_MJPEG) {
         std::vector<uchar> jpegData((uchar*)frame->data, (uchar*)frame->data + frame->data_bytes);
-        cv::Mat jpegMat = cv::imdecode(jpegData, cv::IMREAD_COLOR);
-        if (jpegMat.empty()) {
+        cv::Mat jpegUMat = cv::imdecode(jpegData, cv::IMREAD_COLOR);
+        if (jpegUMat.empty()) {
             LOGE("Failed to decode MJPEG frame\n");
             return cv::UMat();
         }
+
         cv::UMat bgrUMat;
-        jpegMat.copyTo(bgrUMat);
+        jpegUMat.copyTo(bgrUMat);
+
         return bgrUMat;
     } else {
-        LOGE("Unsupported frame format: %d\n", frame_format);
+        LOGE("Unsupported frame forUMat: %d\n", frame_forUMat);
         return cv::UMat();
     }
 }
@@ -335,7 +324,7 @@ void CaptureThread::connectDevice(int vendor_id, int product_id, int file_descri
             if (LIKELY(!result)) {
                 uvc_get_stream_ctrl_format_size(
                         _mDeviceHandle, &_ctrl, /* 네고셔블한 스트림 파라미터 */
-                        UVC_FRAME_FORMAT_MJPEG, /* 프레임 포맷 */
+                        UVC_FRAME_FORMAT_YUYV, /* 프레임 포맷 */
                         1280, 720, 30 /* 해상도와 프레임 속도 */
                 );
                 uvc_error_t result = uvc_start_streaming_bandwidth(
@@ -402,7 +391,7 @@ JNIEXPORT void JNICALL
 Java_com_example_macro_capture_CaptureThread_nativeStartMinimap(JNIEnv *env, jobject thiz,
                                                                 jlong nativeObj) {
     CaptureThread *captureThread = reinterpret_cast<CaptureThread *>(nativeObj);
-    captureThread->calculateMinimap();
+    captureThread->initCaptureMinimap();
 }
 
 }

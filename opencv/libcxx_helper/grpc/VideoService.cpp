@@ -37,6 +37,37 @@ grpc::Status VideoServiceImpl::StreamVideo(grpc::ServerContext* context, const V
     }
     return grpc::Status::OK;
 }
+grpc::Status VideoServiceImpl::CalculateMinimap(grpc::ServerContext* context, const Empty* request, grpc::ServerWriter<VideoFrame>* writer) {
+    captureThread->calculateMinimap();
+
+    while (!context->IsCancelled()) {
+        // 비디오 프레임 가져오기
+        cv::UMat frame = captureThread->getMinimap();
+
+        if (frame.empty()) {
+        //            LOGE("Empty frame received from captureThread");
+            continue;
+        }
+
+        // OpenCV 프레임을 JPEG 형식으로 인코딩
+        std::vector<uchar> buffer;
+        cv::imencode(".jpg", frame, buffer);
+
+        // VideoFrame 메시지 생성
+        VideoFrame videoFrame;
+        videoFrame.set_frame(buffer.data(), buffer.size());
+
+        // 클라이언트로 프레임 전송
+        if (!writer->Write(videoFrame)) {
+            LOGE("Failed to write video frame to client");
+            break; // 전송 실패 시 스트리밍 중단
+        }
+
+        // 전송 속도 조절을 위한 짧은 대기 (예: 30 FPS에 맞추기 위해)
+        std::this_thread::sleep_for(std::chrono::milliseconds(33));
+    }
+    return grpc::Status::OK;
+}
 
 grpc::Status VideoServiceImpl::StartMinimap(grpc::ServerContext* context, const Empty* request, MinimapResponse* response) {
     LOGI("connect start minimap");

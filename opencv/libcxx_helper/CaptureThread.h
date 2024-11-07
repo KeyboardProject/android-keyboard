@@ -38,9 +38,8 @@ public:
     void stop();
     void processFrame(const uint8_t* frameBuffer, int width, int height);
     void captureFrame(cv::UMat currentFrame);
-    bool calculateMinimap();
     void stopMinimap();
-    cv::UMat get_minimap();
+    cv::UMat getMinimap();
     cv::UMat getVideo();
     void connectDevice(int vendor_id, int product_id,
                       int file_descriptor, int bus_num,
@@ -50,10 +49,14 @@ public:
 
     cv::UMat getFrame();
 
+    void initCaptureMinimap();
+
     void addObserver(CharacterDetectionObserver* observer);
     void removeObserver(CharacterDetectionObserver* observer);
 
     bool isCharacterDetectionActive() const { return _isCharacterDetectionActive; }
+
+    bool calculateMinimap();
 private:
     AAssetManager* mgr;  // 추가
     cv::UMat frame;
@@ -87,7 +90,11 @@ private:
     void updateCharacterDetectionStatus(bool status); // isCharacterDetectionActive 상태를 업데이트하고 알림 전송
 
     std::chrono::time_point<std::chrono::steady_clock> lastDetectionTime;
-    const std::chrono::seconds detectionTimeout = std::chrono::seconds(3); // 3초 제한
+    const std::chrono::seconds detectionTimeout = std::chrono::seconds(2); // 3초 제한
+
+    cv::UMat MM_TL_TEMPLATE;
+    cv::UMat MM_BR_TEMPLATE;
+    cv::UMat PLAYER_TEMPLATE;
 };
 
 extern "C" {

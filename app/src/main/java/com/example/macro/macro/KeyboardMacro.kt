@@ -1,5 +1,6 @@
 package com.example.macro.macro
 
+import java.util.concurrent.Executors
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -12,7 +13,8 @@ import java.io.File
 import java.io.FileWriter
 import java.util.Timer
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.locks.LockSupport
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.scheduleAtFixedRate
 
 data class KeyEvent(val delay: Long, val data: ByteArray)
@@ -35,7 +37,9 @@ class KeyboardMacro private constructor(private val context: Context) {
     private var startTime: Long = 0
     private var writer: FileWriter? = null
     private var gattServerService: GattServerService? = null
-    var stopFlag = true;
+    @Volatile private var stopFlag = false
+    private var scheduler = Executors.newSingleThreadScheduledExecutor()
+    private val scheduledTasks = mutableListOf<ScheduledFuture<*>>()
 
     companion object {
         @Volatile
@@ -118,10 +122,6 @@ class KeyboardMacro private constructor(private val context: Context) {
         return events
     }
 
-    fun stopReplay() {
-        stopFlag = true
-    }
-
     private fun startReplay(fileName: String) {
         val events = loadRecordedFile(fileName)
 
@@ -161,47 +161,53 @@ class KeyboardMacro private constructor(private val context: Context) {
     }
 
     fun replayRecordFile(events: List<KeyEvent>, onEvent: (KeyEvent) -> Unit) {
-        // 현재 시간을 기준으로 시작 시간 설정
+        if (scheduler.isShutdown) {
+            scheduler = Executors.newSingleThreadScheduledExecutor()
+        }
+
         val startTime = System.nanoTime()
 
         for (event in events) {
-            // 이벤트 타겟 시간 계산: 시작 시간 + 이벤트의 지연 시간
-            val targetTime = startTime + event.delay
-
-            var remainingTime = targetTime - System.nanoTime()
-
-            // 남은 시간이 1ms 이상일 때는 parkNanos를 사용
-            while (remainingTime > 1_000_000) {
-                LockSupport.parkNanos(remainingTime)
-                remainingTime = targetTime - System.nanoTime()
+            if (stopFlag || scheduler.isShutdown) {
+                handleStopSignal()
+                return
             }
 
-            // 남은 시간이 1ms 이하일 때는 busy-wait로 전환
-            while (System.nanoTime() < targetTime) {
-                // Busy-wait: 남은 시간이 매우 짧은 경우, System.nanoTime을 계속 확인하여 정확도 향상
-            }
+            val delay = event.delay - (System.nanoTime() - startTime)
+            Log.d(TAG, "delay ${delay}")
+            val scheduledTask = scheduler.schedule({
+                if (stopFlag) return@schedule
+                gattServerService?.sendReport(event.data) ?: Log.e(TAG, "GattServerService is not connected")
+                onEvent(event)
+            }, delay, TimeUnit.NANOSECONDS)
 
-            if (stopFlag) {
-                gattServerService?.let { service ->
-                    val stopData = ByteArray(8) { 0 }
-                    service.sendReport(stopData)
-                    Log.d(TAG, "Stop signal sent: ${stopData.joinToString(", ")}")
-                } ?: Log.e(TAG, "GattServerService is not connected")
-                Log.d(TAG, "Macro replay stopped.")
-                break
-            }
-
-            val service = gattServerService
-            if (service != null) {
-                // 서비스의 sendReport() 메서드에 keyData 전달
-                service.sendReport(event.data);
-            } else {
-                Log.e(com.example.macro.handler.UsbDeviceHandler.TAG, "GattServerService is not connected")
-            }
-
-            // 키 입력 이벤트 전송을 위한 콜백 호출
-            onEvent(event)
+            scheduledTasks.add(scheduledTask)
         }
+        scheduler.shutdown() // 새로운 작업은 받을 수 없도록 종료
+        try {
+            if (!scheduler.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS)) {
+                Log.e(TAG, "Scheduler did not terminate")
+            }
+        } catch (e: InterruptedException) {
+            Log.e(TAG, "Waiting for tasks interrupted", e)
+            scheduler.shutdownNow()
+        }
+    }
+
+    fun stopReplay() {
+        stopFlag = true
+        scheduledTasks.forEach { it.cancel(true) }
+        scheduler.shutdownNow()
+        handleStopSignal()
+    }
+
+    private fun handleStopSignal() {
+        gattServerService?.let { service ->
+            val stopData = ByteArray(8) { 0 }
+            service.sendReport(stopData)
+            Log.d(TAG, "Stop signal sent: ${stopData.joinToString(", ")}")
+        } ?: Log.e(TAG, "GattServerService is not connected")
+        Log.d(TAG, "Macro replay stopped.")
     }
 
     private val serviceConnection = object : ServiceConnection {

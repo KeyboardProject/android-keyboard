@@ -25,6 +25,8 @@ public:
 
     grpc::Status StartMinimap(grpc::ServerContext* context, const Empty* request, MinimapResponse* response) override;
 
+    grpc::Status CalculateMinimap(grpc::ServerContext* context, const Empty* request, grpc::ServerWriter<VideoFrame>* writer) override;
+
     VideoServiceImpl(JNIEnv* env, jobject instance, CaptureThread* pCaptureThread) {
         // Java 객체를 전역 참조로 저장
         this->captureThread = pCaptureThread;
