@@ -116,7 +116,7 @@ grpc::Status InputService::StopReplay(grpc::ServerContext* context, const StopRe
     return grpc::Status::OK;
 }
 
-grpc::Status InputService::StartComplexReplay(grpc::ServerContext* context, const ComplexReplayRequest* request, StatusResponse* response) {
+grpc::Status InputService::StartComplexReplay(grpc::ServerContext* context, const ComplexReplayRequest* request, grpc::ServerWriter<StatusResponse>* writer) {
     std::cout << "복잡한 요청 실행, 반복 횟수: " << request->repeatcount() << '\n';
 
     // 미니맵 캡쳐 시작
@@ -140,10 +140,17 @@ grpc::Status InputService::StartComplexReplay(grpc::ServerContext* context, cons
     jobject complexReplayRequestObj = createComplexReplayRequestObject(env, request);
 
     // Java 메서드 호출
-    std::vector<JavaArg> args = { complexReplayRequestObj };
+    std::vector<JavaArg> args = {
+            complexReplayRequestObj
+    };
+
+    this->complexRepalyFlag = true;
+    this->complexReplayErrorWriter = writer;
+
     callJavaMethod(methodName, methodSig, args);
 
     this->captureThread->stopMinimap();
+    this->complexRepalyFlag = false;
 
     std::cout << "복잡한 요청 실행 종료" << std::endl;
     return grpc::Status::OK;
@@ -315,18 +322,104 @@ grpc::Status InputService::ExportProfile(grpc::ServerContext* context, const Exp
     return grpc::Status::OK;
 }
 
+grpc::Status InputService::RemoteKeyEvent(grpc::ServerContext* context, grpc::ServerReader<KeyboardEvent>* reader, InputEmpty* response) {
+    KeyboardEvent event;
+    while (reader->Read(&event)) {
+        // KeyboardEvent 처리
+        // event.data()를 사용하여 HID 리포트 데이터 처리
+
+        // Java 메서드 호출 예시
+        std::string methodName = "handleRemoteKeyEvent";
+        std::string methodSig = "([B)V";
+        std::vector<uint8_t> data(event.data().begin(), event.data().end());
+
+//        LOGD("INPUT MESSAGE");
+
+        bool isAttached;
+        JNIEnv* env = getJNIEnv(isAttached);
+        if (!env) {
+            LOGE("Failed to get JNIEnv for RemoteKeyEvent");
+            continue;
+        }
+
+        // jbyteArray 생성
+        jbyteArray jData = env->NewByteArray(data.size());
+        if (jData == nullptr) {
+            LOGE("Failed to create jbyteArray for RemoteKeyEvent");
+            if (isAttached) {
+                JNIHepler::gJavaVM->DetachCurrentThread();
+            }
+            continue;
+        }
+
+        // jbyteArray에 데이터 설정
+        env->SetByteArrayRegion(jData, 0, data.size(), reinterpret_cast<jbyte*>(data.data()));
+
+        // JavaArg에 jbyteArray 추가
+        std::vector<JavaArg> args = { static_cast<jobject>(jData) };
+
+        // Java 메서드 호출
+        callJavaMethod(methodName, methodSig, args);
+
+        // 로컬 참조 해제
+        if (env->ExceptionCheck()) {
+            env->ExceptionDescribe(); // 예외 내용을 출력
+            env->ExceptionClear();    // 예외 상태를 클리어
+            LOGE("Exception occurred during SetByteArrayRegion");
+            env->DeleteLocalRef(jData); // 이 경우 안전하게 삭제
+            continue;
+        }
+
+        // 스레드 분리
+        if (isAttached) {
+            JNIHepler::gJavaVM->DetachCurrentThread();
+        }
+    }
+
+    // 스트림이 종료되면 OK 반환
+    return grpc::Status::OK;
+}
+
+grpc::Status InputService::RemoteMouseEvent(grpc::ServerContext* context, grpc::ServerReader<MouseEvent>* reader, InputEmpty* response) {
+    MouseEvent event;
+    while (reader->Read(&event)) {
+        // MouseEvent 처리
+        int32_t absoluteX = event.absolutex();
+        int32_t absoluteY = event.absolutey();
+        int32_t wheelDelta = event.wheeldelta();
+        bool leftButton = event.leftbutton();
+        bool rightButton = event.rightbutton();
+        bool middleButton = event.middlebutton();
+
+        // Java 메서드 호출 예시
+        std::string methodName = "handleRemoteMouseEvent";
+        std::string methodSig = "(IIIZZZ)V";
+        std::vector<JavaArg> args = {
+                absoluteX,
+                absoluteY,
+                wheelDelta,
+                leftButton,
+                rightButton,
+                middleButton
+        };
+
+        callJavaMethod(methodName, methodSig, args);
+    }
+
+    // 스트림이 종료되면 OK 반환
+    return grpc::Status::OK;
+}
+
 void InputService::init(int port) {
     initServer(port, this);
 }
 
-void InputService::onCharacterDetectionStatusChanged(bool newStatus) {
-    LOGI("isCharacterDetectionActive 상태가 변경되었습니다: %s", newStatus ? "true" : "false");
-    if (!newStatus) {
-        std::string methodName = "stopReplay";
-        std::string methodSig = "()V";
-        std::vector<JavaArg> args;
-
-        callJavaMethod(methodName, methodSig, args);
+void InputService::onCaptureSystemNotify(std::string message) {
+    LOGI("capture thread 상태가 변경되었습니다: %s", message.c_str());
+    if (complexRepalyFlag && complexReplayErrorWriter != nullptr) {
+        StatusResponse response;
+        response.set_message(message);
+        complexReplayErrorWriter->Write(response);
     }
 }
 

@@ -33,6 +33,7 @@ CaptureThread::CaptureThread(AAssetManager* mgr) : mgr(mgr) {
     MM_TL_TEMPLATE = readImageFromAssets(mgr, "minimap_tl_template.png");
     MM_BR_TEMPLATE = readImageFromAssets(mgr, "minimap_br_template.png");
     PLAYER_TEMPLATE = readImageFromAssets(mgr, "player_template.png");
+    RUNE_TEMPLATE = readImageFromAssets(mgr, "rune_template.png");
 
     ready = false;
     updateCharacterDetectionStatus(false);
@@ -50,23 +51,27 @@ void CaptureThread::stop() {
     running = false;
 }
 
-void CaptureThread::addObserver(CharacterDetectionObserver* observer) {
+void CaptureThread::addObserver(CaptureSystemNotify* observer) {
     observers.push_back(observer);
 }
 
-void CaptureThread::removeObserver(CharacterDetectionObserver* observer) {
+void CaptureThread::removeObserver(CaptureSystemNotify* observer) {
     observers.erase(std::remove(observers.begin(), observers.end(), observer), observers.end());
 }
 
-void CaptureThread::notifyObservers() {
-    for (auto observer : observers) {
-        observer->onCharacterDetectionStatusChanged(isCharacterDetectionActive()); // 새로운 메서드로 변경
-    }
-}
+void CaptureThread::systemNotify(std::string message) {
+    auto now = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastNotifyTime);
 
-void CaptureThread::updateCharacterDetectionStatus(bool status) {
-    _isCharacterDetectionActive = status;
-    notifyObservers();  // 기존 옵저버 알림
+    if (duration.count() < 3000) {
+        return;
+    }
+
+    // 알림 전송 및 시간 기록
+    for (auto observer : observers) {
+        observer->onCaptureSystemNotify(message);
+    }
+    lastNotifyTime = now;
 }
 
 cv::UMat CaptureThread::getMinimap() {
@@ -91,9 +96,101 @@ void CaptureThread::processFrame(const uint8_t* frameBuffer, int width, int heig
     }
 }
 
+void CaptureThread::updateCharacterDetectionStatus(bool state) {
+    isCharacterDetectionActive = state;
+}
+
 void CaptureThread::stopMinimap(){
     updateCharacterDetectionStatus(false);
 }
+
+double calculate_distance(const cv::Point& point1, const cv::Point& point2) {
+    return cv::norm(point1 - point2);
+}
+
+std::vector<cv::Point> find_color(const cv::Mat& minimap_frame, const cv::Vec3b& target_color, double threshold = 10.0) {
+    // 이미지와 타겟 색상을 float32로 변환
+    cv::Mat minimap_frame_float;
+    minimap_frame.convertTo(minimap_frame_float, CV_32FC3);
+
+    // 타겟 색상을 float32로 변환하고 cv::Scalar로 변환
+    cv::Vec3f target_color_float(target_color[0], target_color[1], target_color[2]);
+    cv::Scalar target_color_scalar(target_color_float[0], target_color_float[1], target_color_float[2]);
+
+    // 각 픽셀과 타겟 색상 간의 차이 계산
+    cv::Mat diff;
+    cv::subtract(minimap_frame_float, target_color_scalar, diff);
+
+    // 각 픽셀의 유클리드 거리 계산
+    std::vector<cv::Mat> channels(3);
+    cv::split(diff, channels);
+
+    cv::Mat distance;
+    cv::sqrt(channels[0].mul(channels[0]) + channels[1].mul(channels[1]) + channels[2].mul(channels[2]), distance);
+
+    // 디버깅 정보 출력 (원하시면 제거 가능)
+    double minVal, maxVal, meanVal;
+    cv::minMaxLoc(distance, &minVal, &maxVal);
+    meanVal = cv::mean(distance)[0];
+//    LOGD("거리 값 통계 - 최소: %lf, 최대: %lf, 평균: %lf", minVal, maxVal, meanVal);
+//    std::cout << "거리 값 통계 - 최소: " << minVal << ", 최대: " << maxVal << ", 평균: " << meanVal << std::endl;
+
+    // 임계값 이하의 픽셀로 마스크 생성
+    cv::Mat mask = distance <= threshold;
+    mask.convertTo(mask, CV_8U, 255);
+
+    // 노이즈 제거 (필요에 따라 모폴로지 연산 조정 가능)
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(1, 1));
+    cv::Mat mask_clean;
+    cv::morphologyEx(mask, mask_clean, cv::MORPH_OPEN, kernel);
+
+    // 연결된 구성 요소 분석
+    cv::Mat labels, stats, centroids;
+    int num_components = cv::connectedComponentsWithStats(mask_clean, labels, stats, centroids, 8, CV_32S);
+
+    // 최소 면적 제한 설정
+    int MIN_AREA = 1;
+
+    // 클러스터 수집 (면적과 픽셀 좌표 함께 저장)
+    std::vector<std::pair<int, std::vector<cv::Point>>> clusters;
+
+    for (int i = 1; i < num_components; ++i) {
+        int area = stats.at<int>(i, cv::CC_STAT_AREA);
+        if (area >= MIN_AREA) {
+            std::vector<cv::Point> cluster_pixels;
+            for (int y = 0; y < labels.rows; ++y) {
+                for (int x = 0; x < labels.cols; ++x) {
+                    if (labels.at<int>(y, x) == i) {
+                        cluster_pixels.emplace_back(x, y);
+                    }
+                }
+            }
+            clusters.push_back({area, cluster_pixels});
+            int x = stats.at<int>(i, cv::CC_STAT_LEFT);
+            int y = stats.at<int>(i, cv::CC_STAT_TOP);
+            int w = stats.at<int>(i, cv::CC_STAT_WIDTH);
+            int h = stats.at<int>(i, cv::CC_STAT_HEIGHT);
+//            LOGD("클러스터 %d: 면적=%d, 좌표 범위=(%d, %d, %d, %d)", i, area, x, y, w, h);
+        }
+    }
+
+    if (clusters.empty()) {
+        std::cout << "유의미한 클러스터를 찾지 못했습니다." << std::endl;
+        return {};
+    }
+
+    // 면적 기준으로 클러스터 정렬 (내림차순)
+    std::sort(clusters.begin(), clusters.end(), [](const auto& a, const auto& b) {
+        return a.first > b.first;
+    });
+
+    // 가장 큰 클러스터 선택
+    auto selected_cluster = clusters.front().second;
+
+    return selected_cluster;
+}
+
+
 
 void CaptureThread::captureFrame(cv::UMat currentFrame) {
     {
@@ -110,22 +207,35 @@ void CaptureThread::captureFrame(cv::UMat currentFrame) {
     }
 
     cv::UMat minimap_frame = currentFrame(cv::Rect(mm_tl, mm_br));
+    cv::Mat minmapMat;
+    minimap_frame.copyTo(minmapMat);
 
     auto now = std::chrono::steady_clock::now();
 
-    if(isCharacterDetectionActive()) {
-        std::vector<cv::Point> player_points = multi_match(minimap_frame, PLAYER_TEMPLATE, 0.8);
+    if(isCharacterDetectionActive) {
+        cv::Vec3b target_color(68, 221, 255); // 찾고자 하는 색상
+
+        std::vector<cv::Point> player_points = find_color(minmapMat, target_color, 50);
         if (!player_points.empty()) {
-            cv::Point2d player_pos = convert_to_relative(player_points[0], minimap_frame.size());
-//            LOGI("Player position1: %f %f", player_pos.x, player_pos.y);
-            lastDetectionTime = now;
-        }
-        else {
+            // 클러스터의 첫 번째 픽셀을 기준 좌표로 사용
+            cv::Point center = player_points[0];
+        } else {
             if (now - lastDetectionTime > detectionTimeout) {
-                updateCharacterDetectionStatus(false);
+                systemNotify("플레이어 탐지 실패");
             }
         }
     }
+
+    if (!minimap_frame.empty()) {
+        cv::Vec3b target_color(255, 102, 221); // 찾고자 하는 색상
+
+        std::vector<cv::Point> runeMatch = find_color(minmapMat, target_color, 50);
+        if (!runeMatch.empty()) {
+            systemNotify("룬 탐지");
+        }
+    }
+
+
 
     {
         std::unique_lock<std::shared_mutex> lock(minimap_frame_mutex);
@@ -195,6 +305,26 @@ bool CaptureThread::calculateMinimap() {
     }
 
     return true;
+}
+
+cv::UMat CaptureThread::filterColor(const cv::UMat &img, const std::vector<std::pair<cv::Scalar, cv::Scalar>> &ranges) {
+    cv::UMat hsv;
+    cv::cvtColor(img, hsv, cv::COLOR_BGR2HSV);
+
+    cv::UMat mask, tempMask;
+    for (const auto &range : ranges) {
+        cv::inRange(hsv, range.first, range.second, tempMask);
+        if (mask.empty()) {
+            mask = tempMask.clone();
+        } else {
+            cv::bitwise_or(mask, tempMask, mask);
+        }
+    }
+
+    cv::UMat result = cv::UMat::zeros(img.size(), img.type());
+    img.copyTo(result, mask);
+
+    return result;
 }
 
 std::pair<cv::Point, cv::Point> CaptureThread::single_match(const cv::UMat &image, const cv::UMat &templ) {
@@ -270,6 +400,7 @@ cv::UMat CaptureThread::convertFrame(uvc_frame_t *frame) {
         }
 
         cv::UMat bgrUMat;
+//        cv::cvtColor(jpegUMat, bgrUMat, cv::COLOR_BGR2RGB);
         jpegUMat.copyTo(bgrUMat);
 
         return bgrUMat;
@@ -394,4 +525,160 @@ Java_com_example_macro_capture_CaptureThread_nativeStartMinimap(JNIEnv *env, job
     captureThread->initCaptureMinimap();
 }
 
+}
+
+cv::Mat decodeBufferToMat(const std::vector<uchar>& buffer) {
+    if (buffer.empty()) {
+        return cv::Mat(); // buffer가 비어있으면 빈 Mat 반환
+    }
+
+    // buffer를 cv::Mat으로 디코딩
+    cv::Mat decodedMat = cv::imdecode(buffer, cv::IMREAD_UNCHANGED);
+
+    return decodedMat;
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_example_macro_capture_CaptureThread_nativeGetMinimapData(JNIEnv *env, jobject thiz,
+                                                                  jlong native_obj) {
+    CaptureThread *captureThread = reinterpret_cast<CaptureThread *>(native_obj);
+    cv::UMat minimap = captureThread->getMinimap();
+
+    if (minimap.empty()) {
+        return nullptr; // Minimap이 비어있으면 null 반환
+    }
+
+    cv::Mat mat;
+//    minimap.copyTo(mat);
+    cv::cvtColor(minimap, mat, cv::COLOR_BGR2RGB);
+
+    std::ostringstream jsonStream;
+    jsonStream << "["; // JSON 배열 시작
+
+    for (int i = 0; i < mat.rows; ++i) {
+        jsonStream << "["; // Row 배열 시작
+        for (int j = 0; j < mat.cols; ++j) {
+            // RGB 포맷 픽셀 읽기
+            const cv::Vec3b &pixel = mat.at<cv::Vec3b>(i, j);
+            jsonStream << "[" << (int)pixel[0] << ", " << (int)pixel[1] << ", " << (int)pixel[2] << "]";
+            if (j != mat.cols - 1) jsonStream << ", "; // Row 내 쉼표 처리
+        }
+        jsonStream << "]"; // Row 배열 끝
+        if (i != mat.rows - 1) jsonStream << ", "; // Rows 간 쉼표 처리
+    }
+
+    jsonStream << "]"; // JSON 배열 끝
+
+    // JSON 문자열 반환
+    std::string jsonString = jsonStream.str();
+    return env->NewStringUTF(jsonString.c_str());
+}
+
+// Base64 인코딩 함수
+std::string base64_encode(const uchar* bytes_to_encode, size_t len) {
+    static const std::string base64_chars =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "abcdefghijklmnopqrstuvwxyz"
+            "0123456789+/";
+
+    std::string ret;
+    int i = 0;
+    int j = 0;
+    uchar char_array_3[3];
+    uchar char_array_4[4];
+
+    while (len--) {
+        char_array_3[i++] = *(bytes_to_encode++);
+        if (i == 3) {
+            char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+            char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+            char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+            char_array_4[3] = char_array_3[2] & 0x3f;
+
+            for (i = 0; (i < 4); i++)
+                ret += base64_chars[char_array_4[i]];
+            i = 0;
+        }
+    }
+
+    if (i) {
+        for (j = i; j < 3; j++)
+            char_array_3[j] = '\0';
+
+        char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+        char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+        char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+        char_array_4[3] = char_array_3[2] & 0x3f;
+
+        for (j = 0; (j < i + 1); j++)
+            ret += base64_chars[char_array_4[j]];
+
+        while ((i++ < 3))
+            ret += '=';
+    }
+
+    return ret;
+}
+
+extern "C"
+JNIEXPORT jbyteArray JNICALL
+Java_com_example_macro_capture_CaptureThread_nativeGetMinimapImage(JNIEnv *env, jobject thiz,
+                                                                   jlong native_obj) {
+    // Convert native object to CaptureThread
+    CaptureThread *captureThread = reinterpret_cast<CaptureThread *>(native_obj);
+
+    // Get the minimap image
+    cv::UMat minimap = captureThread->getMinimap();
+
+    if (minimap.empty()) {
+        return nullptr; // Minimap이 비어있으면 null 반환
+    }
+
+    // Encode the Mat image to a buffer
+    std::vector<uchar> buffer;
+    cv::imencode(".png", minimap, buffer);
+
+    if (buffer.empty()) {
+        __android_log_print(ANDROID_LOG_ERROR, "nativeGetMinimapImage", "Image encoding failed.");
+        return nullptr;
+    }
+    __android_log_print(ANDROID_LOG_INFO, "nativeGetMinimapImage", "Encoded image size: %zu", buffer.size());
+
+    // Create a Java byte array and copy the buffer data
+    jbyteArray byteArray = env->NewByteArray(buffer.size());
+    if (byteArray == nullptr) {
+        __android_log_print(ANDROID_LOG_ERROR, "nativeGetMinimapImage", "Failed to create jbyteArray.");
+        return nullptr;
+    }
+    env->SetByteArrayRegion(byteArray, 0, buffer.size(), reinterpret_cast<jbyte *>(buffer.data()));
+
+    return byteArray;
+}
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_example_macro_capture_CaptureThread_nativeGetMinimapImageBase64(JNIEnv *env, jobject thiz,
+                                                                         jlong native_obj) {
+    // Convert native object to CaptureThread
+    CaptureThread *captureThread = reinterpret_cast<CaptureThread *>(native_obj);
+
+    // Get the minimap image
+    cv::UMat minimap = captureThread->getMinimap();
+    if (minimap.empty()) {
+        __android_log_print(ANDROID_LOG_ERROR, "nativeGetMinimapImageBase64", "Minimap is empty.");
+        return nullptr;
+    }
+
+    // Encode the Mat image to a buffer
+    std::vector<uchar> buffer;
+    if (!cv::imencode(".png", minimap, buffer)) {
+        __android_log_print(ANDROID_LOG_ERROR, "nativeGetMinimapImageBase64", "Image encoding failed.");
+        return nullptr;
+    }
+
+    // Convert the buffer to Base64
+    std::string base64_string = base64_encode(buffer.data(), buffer.size());
+
+    // Return the Base64 string as a Java string
+    return env->NewStringUTF(base64_string.c_str());
 }

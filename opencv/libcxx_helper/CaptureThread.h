@@ -22,10 +22,10 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-class CharacterDetectionObserver {
+class CaptureSystemNotify {
 public:
-    virtual ~CharacterDetectionObserver() = default;
-    virtual void onCharacterDetectionStatusChanged(bool newStatus) = 0;
+    virtual ~CaptureSystemNotify() = default;
+    virtual void onCaptureSystemNotify(std::string message) = 0;
 };
 
 class CaptureThread {
@@ -51,10 +51,8 @@ public:
 
     void initCaptureMinimap();
 
-    void addObserver(CharacterDetectionObserver* observer);
-    void removeObserver(CharacterDetectionObserver* observer);
-
-    bool isCharacterDetectionActive() const { return _isCharacterDetectionActive; }
+    void addObserver(CaptureSystemNotify* observer);
+    void removeObserver(CaptureSystemNotify* observer);
 
     bool calculateMinimap();
 private:
@@ -76,18 +74,22 @@ private:
     uvc_context_t *mContext;
     uvc_stream_ctrl_t ctrl;
 
-    std::vector<CharacterDetectionObserver*> observers;
+    std::vector<CaptureSystemNotify*> observers;
 
-    std::atomic_bool _isCharacterDetectionActive;
+    std::atomic_bool isCharacterDetectionActive;
+
+    std::chrono::steady_clock::time_point lastNotifyTime;
 
     std::pair<cv::Point, cv::Point> single_match(const cv::UMat &image, const cv::UMat &templ);
     std::vector<cv::Point> multi_match(const cv::UMat &image, const cv::UMat &templ, double threshold);
+    cv::UMat filterColor(const cv::UMat &img, const std::vector<std::pair<cv::Scalar, cv::Scalar>> &ranges);
     cv::Point2d convert_to_relative(const cv::Point &point, const cv::Size &size);
 
     static void frameCallback(uvc_frame_t *frame, void *ptr);
 
-    void notifyObservers(); // 상태 변경 알림 메서드
-    void updateCharacterDetectionStatus(bool status); // isCharacterDetectionActive 상태를 업데이트하고 알림 전송
+    void systemNotify(std::string message);
+
+    void updateCharacterDetectionStatus(bool state);
 
     std::chrono::time_point<std::chrono::steady_clock> lastDetectionTime;
     const std::chrono::seconds detectionTimeout = std::chrono::seconds(2); // 3초 제한
@@ -95,6 +97,7 @@ private:
     cv::UMat MM_TL_TEMPLATE;
     cv::UMat MM_BR_TEMPLATE;
     cv::UMat PLAYER_TEMPLATE;
+    cv::UMat RUNE_TEMPLATE;
 };
 
 extern "C" {

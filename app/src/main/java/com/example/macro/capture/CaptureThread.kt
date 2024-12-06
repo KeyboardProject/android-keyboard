@@ -63,6 +63,67 @@ class CaptureThread(assets: AssetManager, val context: Context) {
     external fun nativeConnectDevice(nativeObj: Long, vendorId: Int, productId: Int, fileDescriptor: Int, busNum: Int, devAddr: Int, usbfs: String)
     external fun nativeStartMinimap(nativeObj: Long)
 
+    external fun nativeGetMinimapData(nativeObj: Long): String?
+    external fun nativeGetMinimapImage(nativeObj: Long): ByteArray?
+    external fun nativeGetMinimapImageBase64(nativeObj: Long): String?
+
+    fun saveMinimapToJson(filePath: String) {
+        val jsonData = nativeGetMinimapData(nativeObj)
+
+        if (jsonData == null) {
+            Log.e("CaptureThread", "Failed to get minimap JSON data.")
+            return
+        }
+
+        // JSON 파일 저장
+        try {
+            File(filePath).writeText(jsonData.toString())
+            Log.d("CaptureThread", "Minimap data saved to JSON: $filePath")
+        } catch (e: IOException) {
+            Log.e("CaptureThread", "Failed to save JSON: ${e.message}")
+        }
+    }
+
+    fun saveMinimapToImage(filePath: String) {
+        val imageData = nativeGetMinimapImage(nativeObj)
+
+        if (imageData == null) {
+            Log.e("CaptureThread", "Failed to get image data.")
+        } else {
+            Log.d("CaptureThread", "Received image data size: ${imageData.size}")
+            try {
+                File(filePath).writeBytes(imageData)
+                Log.d("CaptureThread", "Minimap image saved to: $filePath")
+            } catch (e: IOException) {
+                Log.e("CaptureThread", "Failed to save image: ${e.message}")
+            }
+        }
+
+        // ByteArray를 파일로 저장
+
+    }
+    fun saveMinimapBase64ToImage(filePath: String) {
+        val base64Data = nativeGetMinimapImageBase64(nativeObj)
+
+        if (base64Data == null) {
+            Log.e("CaptureThread", "Failed to get Base64 encoded image data.")
+            return
+        }
+
+        try {
+            // Base64 디코딩
+            val decodedBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+
+            // ByteArray를 파일로 저장
+            File(filePath).writeBytes(decodedBytes)
+            Log.d("CaptureThread", "Minimap image saved to: $filePath")
+        } catch (e: IOException) {
+            Log.e("CaptureThread", "Failed to save image: ${e.message}")
+        }
+    }
+
+
+
     companion object {
         init {
             System.loadLibrary("native_lib")

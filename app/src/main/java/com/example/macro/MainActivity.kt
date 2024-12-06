@@ -12,9 +12,11 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.util.Log
 import android.view.SurfaceHolder
 import android.view.TextureView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
@@ -37,6 +39,8 @@ import com.example.macro.ui.theme.MacroTheme
 import org.opencv.android.Utils
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import java.io.File
+import java.io.IOException
 import java.nio.ByteBuffer
 
 
@@ -84,8 +88,55 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
 //                        modifier = Modifier.fillMaxSize()
 //                    )
                     MinimapButton {
-                        captureThread?.startMinimap()
+                        // Downloads 폴더에 저장하는 함수
+                        fun saveJsonToDownloads(filePath: String, fileName: String) {
+                            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                            if (!downloadsDir.exists()) {
+                                downloadsDir.mkdirs()
+                            }
+                            val file = File(downloadsDir, fileName)
+
+                            try {
+                                val jsonData = File(filePath).readText()
+                                file.writeText(jsonData)
+                                Toast.makeText(this, "File saved to Downloads: ${file.absolutePath}", Toast.LENGTH_SHORT).show()
+                            } catch (e: IOException) {
+                                Log.e("CaptureThread", "Failed to save JSON to Downloads: ${e.message}")
+                            }
+                        }
+
+//                        if (captureThread != null) {
+//                            Thread {
+//                                val filePath = "${getExternalFilesDir(null)?.absolutePath}/minimap.json"
+//                                captureThread?.saveMinimapToJson(filePath)
+//
+//                                runOnUiThread {
+//
+//                                    Toast.makeText(this, "Minimap saved to $filePath", Toast.LENGTH_SHORT).show()
+//                                    saveJsonToDownloads(filePath,"minimap.json")
+//
+//                                }
+//                            }.start()
+//                        } else {
+//                            Toast.makeText(this, "CaptureThread is not initialized", Toast.LENGTH_SHORT).show()
+//                        }
+                        if (captureThread != null) {
+                            Thread {
+                                val filePath = "${getExternalFilesDir(null)?.absolutePath}/minimap.txt"
+                                captureThread?.saveMinimapToJson(filePath)
+
+                                runOnUiThread {
+
+                                    Toast.makeText(this, "Minimap saved to $filePath", Toast.LENGTH_SHORT).show()
+                                    saveJsonToDownloads(filePath,"minimap.txt")
+
+                                }
+                            }.start()
+                        } else {
+                            Toast.makeText(this, "CaptureThread is not initialized", Toast.LENGTH_SHORT).show()
+                        }
                     }
+
                 }
             }
         }

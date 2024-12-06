@@ -50,6 +50,8 @@ public class GattServerService extends Service {
     public static final String EXTRA_KEY_INDEX = "com.ckbs.blehidkeyboard.EXTRA_KEY_INDEX";
     public static final String EXTRA_KEY_PRESSED = "com.ckbs.blehidkeyboard.EXTRA_KEY_PRESSED";
 
+    private static final UUID BOOT_MOUSE_INPUT_REPORT_UUID = UUID.fromString("00002A33-0000-1000-8000-00805f9b34fb"); // Boot Mouse Input Report
+
     // HID over GATT UUIDs
     private static final UUID HID_SERVICE_UUID = UUID.fromString("00001812-0000-1000-8000-00805f9b34fb"); // Human Interface Device Service
     private static final UUID REPORT_MAP_UUID = UUID.fromString("00002A4B-0000-1000-8000-00805f9b34fb"); // Report Map
@@ -84,6 +86,43 @@ public class GattServerService extends Service {
 
     private static final byte[] REPORT_MAP = new byte[]{
             0x05, 0x01,        // Usage Page (Generic Desktop)
+            0x09, 0x02,        // Usage (Mouse)
+            (byte) 0xA1, 0x01, // Collection (Application)
+            (byte) 0x85, 0x02, //   Report ID (2)
+            0x09, 0x01,        //   Usage (Pointer)
+            (byte) 0xA1, 0x00, //   Collection (Physical)
+            0x05, 0x09,        //     Usage Page (Buttons)
+            0x19, 0x01,        //     Usage Minimum (01)
+            0x29, 0x03,        //     Usage Maximum (03)
+            0x15, 0x00,        //     Logical Minimum (0)
+            0x25, 0x01,        //     Logical Maximum (1)
+            (byte) 0x95, 0x03, //     Report Count (3)
+            0x75, 0x01,        //     Report Size (1)
+            (byte) 0x81, 0x02, //     Input (Data, Variable, Absolute) ;3 button bits
+            (byte) 0x95, 0x01, //     Report Count (1)
+            0x75, 0x05,        //     Report Size (5)
+            (byte) 0x81, 0x01, //     Input (Constant) ;5 bit padding
+            0x05, 0x01,        //     Usage Page (Generic Desktop)
+            0x09, 0x30,        //     Usage (X)
+            0x09, 0x31,        //     Usage (Y)
+            0x15, 0x00,        //     Logical Minimum (0)
+            0x26, (byte) 0xFF, 0x7F,  //     Logical Maximum (32767)
+            0x75, 0x10,        //     Report Size (16 bits)
+            (byte) 0x95, 0x02, //     Report Count (2)
+            (byte) 0x81, 0x02, //     Input (Data, Variable, Absolute) ;Absolute X & Y positions
+
+            0x09, 0x38,        //     Usage (Wheel)
+            0x15, (byte) 0x81, //     Logical Minimum (-127)
+            0x25, 0x7F,        //     Logical Maximum (127)
+            0x75, 0x08,        //     Report Size (8)
+            (byte) 0x95, 0x01, //     Report Count (1)
+            (byte) 0x81, 0x06, //     Input (Data, Variable, Relative) ;1 wheel byte
+
+            (byte) 0xC0,       //   End Collection
+            (byte) 0xC0,       // End Collection
+
+            // Keyboard Report Descriptor
+            0x05, 0x01,        // Usage Page (Generic Desktop)
             0x09, 0x06,        // Usage (Keyboard)
             (byte) 0xA1, 0x01, // Collection (Application)
             (byte) 0x85, 0x01, //   Report ID (1)
@@ -117,6 +156,7 @@ public class GattServerService extends Service {
     };
 
     private BluetoothGattCharacteristic mReportCharacteristic;
+    private BluetoothGattCharacteristic mMouseInputReportCharacteristic;
 
     // 페어링 상태 변경을 수신하는 BroadcastReceiver
     private final BroadcastReceiver mBondingReceiver = new BroadcastReceiver() {
@@ -221,23 +261,6 @@ public class GattServerService extends Service {
     private void startServer() {
         mGattServer = mBluetoothManager.openGattServer(this, mGattServerCallback);
 
-        // Generic Attribute Service 추가
-        BluetoothGattService gattService = new BluetoothGattService(
-                UUID.fromString("00001801-0000-1000-8000-00805f9b34fb"), // GATT Service UUID
-                BluetoothGattService.SERVICE_TYPE_PRIMARY
-        );
-
-        // Service Changed Characteristic
-        BluetoothGattCharacteristic serviceChangedCharacteristic = new BluetoothGattCharacteristic(
-                UUID.fromString("00002A05-0000-1000-8000-00805f9b34fb"), // Service Changed UUID
-                BluetoothGattCharacteristic.PROPERTY_INDICATE,
-                BluetoothGattCharacteristic.PERMISSION_READ
-        );
-        gattService.addCharacteristic(serviceChangedCharacteristic);
-
-        // GATT Server에 Generic Attribute Service 추가
-        mGattServer.addService(gattService);
-
         // HID Service
         BluetoothGattService hidService = new BluetoothGattService(HID_SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY);
 
@@ -265,8 +288,15 @@ public class GattServerService extends Service {
         );
         protocolModeCharacteristic.setValue(new byte[]{0x01}); // Report Protocol Mode
 
-        // Report Characteristic (Input Report)
+        // Keyboard Report Characteristic (Input Report)
         mReportCharacteristic = new BluetoothGattCharacteristic(
+                REPORT_UUID,
+                BluetoothGattCharacteristic.PROPERTY_READ | BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+                BluetoothGattCharacteristic.PERMISSION_READ
+        );
+
+        // Mouse Report Characteristic (Input Report)
+        mMouseInputReportCharacteristic = new BluetoothGattCharacteristic(
                 REPORT_UUID,
                 BluetoothGattCharacteristic.PROPERTY_READ | BluetoothGattCharacteristic.PROPERTY_NOTIFY,
                 BluetoothGattCharacteristic.PERMISSION_READ
@@ -279,7 +309,14 @@ public class GattServerService extends Service {
         );
         mReportCharacteristic.addDescriptor(clientConfigDescriptor);
 
-        // Report Reference Descriptor 추가
+        // Mouse CCCD
+        BluetoothGattDescriptor mouseClientConfigDescriptor = new BluetoothGattDescriptor(
+                CLIENT_CHARACTERISTIC_CONFIG_UUID,
+                BluetoothGattDescriptor.PERMISSION_READ | BluetoothGattDescriptor.PERMISSION_WRITE
+        );
+        mMouseInputReportCharacteristic.addDescriptor(mouseClientConfigDescriptor);
+
+        // Report Reference Descriptor 추가 (Keyboard)
         BluetoothGattDescriptor reportReferenceDescriptor = new BluetoothGattDescriptor(
                 REPORT_REFERENCE_UUID,
                 BluetoothGattDescriptor.PERMISSION_READ
@@ -288,6 +325,16 @@ public class GattServerService extends Service {
         byte[] reportReferenceValue = new byte[]{0x01, 0x01};
         reportReferenceDescriptor.setValue(reportReferenceValue);
         mReportCharacteristic.addDescriptor(reportReferenceDescriptor);
+
+        // Report Reference Descriptor 추가 (Mouse)
+        BluetoothGattDescriptor mouseReportReferenceDescriptor = new BluetoothGattDescriptor(
+                REPORT_REFERENCE_UUID,
+                BluetoothGattDescriptor.PERMISSION_READ
+        );
+// Report ID = 2, Report Type = Input (1)
+        byte[] mouseReportReferenceValue = new byte[]{0x02, 0x01};
+        mouseReportReferenceDescriptor.setValue(mouseReportReferenceValue);
+        mMouseInputReportCharacteristic.addDescriptor(mouseReportReferenceDescriptor);
 
         // Boot Keyboard Input Report Characteristic
         BluetoothGattCharacteristic bootKeyboardInputReportCharacteristic = new BluetoothGattCharacteristic(
@@ -301,15 +348,132 @@ public class GattServerService extends Service {
         );
         bootKeyboardInputReportCharacteristic.addDescriptor(bootClientConfigDescriptor);
 
+        // Boot Mouse Input Report Characteristic
+        // Boot Mouse Input Report Characteristic
+        BluetoothGattCharacteristic bootMouseInputReportCharacteristic = new BluetoothGattCharacteristic(
+                BOOT_MOUSE_INPUT_REPORT_UUID,
+                BluetoothGattCharacteristic.PROPERTY_READ | BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+                BluetoothGattCharacteristic.PERMISSION_READ
+        );
+// CCCD 추가
+        BluetoothGattDescriptor bootMouseClientConfigDescriptor = new BluetoothGattDescriptor(
+                CLIENT_CHARACTERISTIC_CONFIG_UUID,
+                BluetoothGattDescriptor.PERMISSION_READ | BluetoothGattDescriptor.PERMISSION_WRITE
+        );
+        bootMouseInputReportCharacteristic.addDescriptor(bootMouseClientConfigDescriptor);
+
+// HID Service에 추가
+        hidService.addCharacteristic(bootMouseInputReportCharacteristic);
+
         // Add characteristics to HID Service
         hidService.addCharacteristic(hidInfoCharacteristic);
         hidService.addCharacteristic(reportMapCharacteristic);
         hidService.addCharacteristic(protocolModeCharacteristic);
         hidService.addCharacteristic(mReportCharacteristic);
-        hidService.addCharacteristic(bootKeyboardInputReportCharacteristic);
+        hidService.addCharacteristic(mMouseInputReportCharacteristic);
+
+        BluetoothGattCharacteristic hidControlPointCharacteristic = new BluetoothGattCharacteristic(
+                UUID.fromString("00002A4C-0000-1000-8000-00805f9b34fb"),
+                BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
+                BluetoothGattCharacteristic.PERMISSION_WRITE
+        );
+        hidService.addCharacteristic(hidControlPointCharacteristic);
 
         mGattServer.addService(hidService);
     }
+
+//    private void startServer() {
+//        mGattServer = mBluetoothManager.openGattServer(this, mGattServerCallback);
+//
+//        // Generic Attribute Service 추가
+//        BluetoothGattService gattService = new BluetoothGattService(
+//                UUID.fromString("00001801-0000-1000-8000-00805f9b34fb"), // GATT Service UUID
+//                BluetoothGattService.SERVICE_TYPE_PRIMARY
+//        );
+//
+//        // Service Changed Characteristic
+//        BluetoothGattCharacteristic serviceChangedCharacteristic = new BluetoothGattCharacteristic(
+//                UUID.fromString("00002A05-0000-1000-8000-00805f9b34fb"), // Service Changed UUID
+//                BluetoothGattCharacteristic.PROPERTY_INDICATE,
+//                BluetoothGattCharacteristic.PERMISSION_READ
+//        );
+//        gattService.addCharacteristic(serviceChangedCharacteristic);
+//
+//        // GATT Server에 Generic Attribute Service 추가
+//        mGattServer.addService(gattService);
+//
+//        // HID Service
+//        BluetoothGattService hidService = new BluetoothGattService(HID_SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY);
+//
+//        // HID Information Characteristic
+//        BluetoothGattCharacteristic hidInfoCharacteristic = new BluetoothGattCharacteristic(
+//                HID_INFORMATION_UUID,
+//                BluetoothGattCharacteristic.PROPERTY_READ,
+//                BluetoothGattCharacteristic.PERMISSION_READ
+//        );
+//        hidInfoCharacteristic.setValue(HID_INFORMATION);
+//
+//        // Report Map Characteristic
+//        BluetoothGattCharacteristic reportMapCharacteristic = new BluetoothGattCharacteristic(
+//                REPORT_MAP_UUID,
+//                BluetoothGattCharacteristic.PROPERTY_READ,
+//                BluetoothGattCharacteristic.PERMISSION_READ
+//        );
+//        reportMapCharacteristic.setValue(REPORT_MAP);
+//
+//        // Protocol Mode Characteristic
+//        BluetoothGattCharacteristic protocolModeCharacteristic = new BluetoothGattCharacteristic(
+//                PROTOCOL_MODE_UUID,
+//                BluetoothGattCharacteristic.PROPERTY_READ | BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
+//                BluetoothGattCharacteristic.PERMISSION_READ | BluetoothGattCharacteristic.PERMISSION_WRITE
+//        );
+//        protocolModeCharacteristic.setValue(new byte[]{0x01}); // Report Protocol Mode
+//
+//        // Report Characteristic (Input Report)
+//        mReportCharacteristic = new BluetoothGattCharacteristic(
+//                REPORT_UUID,
+//                BluetoothGattCharacteristic.PROPERTY_READ | BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+//                BluetoothGattCharacteristic.PERMISSION_READ
+//        );
+//
+//        // Client Characteristic Configuration Descriptor (CCCD)
+//        BluetoothGattDescriptor clientConfigDescriptor = new BluetoothGattDescriptor(
+//                CLIENT_CHARACTERISTIC_CONFIG_UUID,
+//                BluetoothGattDescriptor.PERMISSION_READ | BluetoothGattDescriptor.PERMISSION_WRITE
+//        );
+//        mReportCharacteristic.addDescriptor(clientConfigDescriptor);
+//
+//        // Report Reference Descriptor 추가
+//        BluetoothGattDescriptor reportReferenceDescriptor = new BluetoothGattDescriptor(
+//                REPORT_REFERENCE_UUID,
+//                BluetoothGattDescriptor.PERMISSION_READ
+//        );
+//        // Report ID = 1, Report Type = Input (1)
+//        byte[] reportReferenceValue = new byte[]{0x01, 0x01};
+//        reportReferenceDescriptor.setValue(reportReferenceValue);
+//        mReportCharacteristic.addDescriptor(reportReferenceDescriptor);
+//
+//        // Boot Keyboard Input Report Characteristic
+//        BluetoothGattCharacteristic bootKeyboardInputReportCharacteristic = new BluetoothGattCharacteristic(
+//                BOOT_KEYBOARD_INPUT_REPORT_UUID,
+//                BluetoothGattCharacteristic.PROPERTY_READ | BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+//                BluetoothGattCharacteristic.PERMISSION_READ
+//        );
+//        BluetoothGattDescriptor bootClientConfigDescriptor = new BluetoothGattDescriptor(
+//                CLIENT_CHARACTERISTIC_CONFIG_UUID,
+//                BluetoothGattDescriptor.PERMISSION_READ | BluetoothGattDescriptor.PERMISSION_WRITE
+//        );
+//        bootKeyboardInputReportCharacteristic.addDescriptor(bootClientConfigDescriptor);
+//
+//        // Add characteristics to HID Service
+//        hidService.addCharacteristic(hidInfoCharacteristic);
+//        hidService.addCharacteristic(reportMapCharacteristic);
+//        hidService.addCharacteristic(protocolModeCharacteristic);
+//        hidService.addCharacteristic(mReportCharacteristic);
+//        hidService.addCharacteristic(bootKeyboardInputReportCharacteristic);
+//
+//        mGattServer.addService(hidService);
+//    }
 
 
     private BluetoothGattServerCallback mGattServerCallback = new BluetoothGattServerCallback() {
@@ -418,6 +582,46 @@ public class GattServerService extends Service {
             }
         }
     };
+
+    public void sendMouseInput(int absoluteX, int absoluteY, int wheelDelta, boolean leftButton, boolean rightButton, boolean middleButton) {
+        if (mConnectedDevice == null) {
+            Log.w(TAG, "No connected device to send mouse input.");
+            return;
+        }
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "BLUETOOTH_CONNECT permission not granted");
+            return;
+        }
+
+        // 마우스 버튼 상태 설정
+        byte buttons = 0;
+        if (leftButton) {
+            buttons |= (1 << 0); // Left button
+        }
+        if (rightButton) {
+            buttons |= (1 << 1); // Right button
+        }
+        if (middleButton) {
+            buttons |= (1 << 2); // Middle button
+        }
+
+        // 마우스 리포트 생성
+        byte[] report = new byte[6];
+        report[0] = buttons;                       // 버튼 상태
+        report[1] = (byte) (absoluteX & 0xFF);     // X 좌표 하위 바이트
+        report[2] = (byte) ((absoluteX >> 8) & 0xFF); // X 좌표 상위 바이트
+        report[3] = (byte) (absoluteY & 0xFF);     // Y 좌표 하위 바이트
+        report[4] = (byte) ((absoluteY >> 8) & 0xFF); // Y 좌표 상위 바이트
+        report[5] = (byte) wheelDelta;             // 휠 동작 (음수: 아래로, 양수: 위로)
+
+//        Log.d(TAG, "sendMouseInput(): " + bytesToHex(report));
+
+        // 마우스 리포트 전송
+        mMouseInputReportCharacteristic.setValue(report);
+        mGattServer.notifyCharacteristicChanged(mConnectedDevice, mMouseInputReportCharacteristic, false);
+    }
+
 
     public void sendReport(byte[] report) {
         if (mConnectedDevice == null) {

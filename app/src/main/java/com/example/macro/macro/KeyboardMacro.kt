@@ -9,6 +9,12 @@ import android.os.IBinder
 import android.util.Log
 import com.example.macro.handler.UsbDeviceHandler
 import com.example.macro.keyboard.GattServerService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileWriter
 import java.util.Timer
@@ -130,6 +136,35 @@ class KeyboardMacro private constructor(private val context: Context) {
         }
     }
 
+    private val randomMouseMovementJob = Job()
+    private val coroutineScope = CoroutineScope(Dispatchers.IO + randomMouseMovementJob)
+
+    fun startRandomMouseMovement() {
+        coroutineScope.launch {
+            while (isActive) {
+                val deltaX = (-127..127).random()
+                val deltaY = (-127..127).random()
+//                gattServerService?.sendMouseInput(deltaX, deltaY, false, false, false)
+                delay(1000L)
+            }
+        }
+    }
+
+    fun stopRandomMouseMovement() {
+        randomMouseMovementJob.cancel()
+    }
+
+    private fun mousetest() {
+        // 단일 랜덤 이동
+        val deltaX = (-127..127).random()
+        val deltaY = (-127..127).random()
+//        gattServerService?.sendMouseInput(deltaX, deltaY, false, false, false)
+    }
+
+    fun handleMoustInput(absoluteX: Int, absoluteY: Int, wheelDelta: Int, leftButton: Boolean, rightButton: Boolean, middleButton: Boolean) {
+        gattServerService?.sendMouseInput(absoluteX, absoluteY, wheelDelta, leftButton, rightButton, middleButton)
+    }
+
     fun startComplexReplay(request: ComplexReplayRequest) {
         stopFlag = false
         repeat(request.repeatCount) { j ->
@@ -174,7 +209,7 @@ class KeyboardMacro private constructor(private val context: Context) {
             }
 
             val delay = event.delay - (System.nanoTime() - startTime)
-            Log.d(TAG, "delay ${delay}")
+//            Log.d(TAG, "delay ${delay}")
             val scheduledTask = scheduler.schedule({
                 if (stopFlag) return@schedule
                 gattServerService?.sendReport(event.data) ?: Log.e(TAG, "GattServerService is not connected")
@@ -250,6 +285,10 @@ class KeyboardMacro private constructor(private val context: Context) {
         } catch (e: IllegalArgumentException) {
             Log.e(TAG, "ServiceConnection already unbound")
         }
+    }
+
+    fun handleKeyboardInput(data: ByteArray) {
+        gattServerService?.sendReport(data)
     }
 
     init {

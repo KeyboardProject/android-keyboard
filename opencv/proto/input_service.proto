@@ -11,9 +11,26 @@ service Input {
   rpc ListSaveFiles(ListRequest) returns (SaveFilesResponse);
   rpc SaveMacro(SaveMacroRequest) returns (SaveMacroResponse);
   rpc DeleteMacros(DeleteMacrosRequest) returns (StatusResponse);
-  rpc StartComplexReplay(ComplexReplayRequest) returns (StatusResponse);
+  rpc StartComplexReplay(ComplexReplayRequest) returns (stream StatusResponse);
   rpc ImportProfile(ImportProfileRequest) returns (StatusResponse);
   rpc ExportProfile(ExportProfileRequest) returns (ExportProfileResponse);
+  rpc RemoteKeyEvent(stream KeyboardEvent) returns (InputEmpty);
+  rpc RemoteMouseEvent(stream MouseEvent) returns (InputEmpty);
+}
+
+message InputEmpty {}
+
+message KeyboardEvent {
+    bytes data = 1;
+}
+
+message MouseEvent {
+    int32 absoluteX = 1; // X축 이동량
+    int32 absoluteY = 2; // Y축 이동량
+    int32 wheelDelta = 3;
+    bool leftButton = 4; // 왼쪽 버튼 상태
+    bool rightButton = 5; // 오른쪽 버튼 상태
+    bool middleButton = 6; // 가운데 버튼 상태
 }
 
 message KeyEvent {

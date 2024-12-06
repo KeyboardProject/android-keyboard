@@ -19,8 +19,11 @@
 
 using MacroReplayCallback = std::function<void(const std::string&)>;
 
-class InputService final : public GrpcServer, Input::Service, public CharacterDetectionObserver {
+class InputService final : public GrpcServer, Input::Service, public CaptureSystemNotify {
     CaptureThread* captureThread;
+
+    bool complexRepalyFlag;
+    grpc::ServerWriter<StatusResponse>* complexReplayErrorWriter;
 
     grpc::Status StartRecording(grpc::ServerContext* context, const StartRequest* request,
                                 StatusResponse* response) override;
@@ -40,10 +43,13 @@ class InputService final : public GrpcServer, Input::Service, public CharacterDe
                                 GetMacroDetailResponse* response) override;
     grpc::Status DeleteMacros(grpc::ServerContext* context, const DeleteMacrosRequest* request,
                               StatusResponse* response) override;
-    grpc::Status StartComplexReplay(grpc::ServerContext* context, const ComplexReplayRequest* request, StatusResponse* response) override;
+    grpc::Status StartComplexReplay(grpc::ServerContext* context, const ComplexReplayRequest* request, grpc::ServerWriter<StatusResponse>* writer) override;
 
     grpc::Status ImportProfile(grpc::ServerContext* context, const ImportProfileRequest* request, StatusResponse* response) override;
     grpc::Status ExportProfile(grpc::ServerContext* context, const ExportProfileRequest* request, ExportProfileResponse* response) override;
+
+    grpc::Status RemoteKeyEvent(grpc::ServerContext* context, grpc::ServerReader<KeyboardEvent>* reader, InputEmpty* response) override;
+    grpc::Status RemoteMouseEvent(grpc::ServerContext* context, grpc::ServerReader<MouseEvent>* reader, InputEmpty* response) override;
 
     jobject createComplexReplayRequestObject(JNIEnv* env, const ComplexReplayRequest* request);
     jobject createReplayTaskObject(JNIEnv* env, const ReplayTask& task);
@@ -51,13 +57,14 @@ class InputService final : public GrpcServer, Input::Service, public CharacterDe
 
     void startMacroReplay(const std::string& filename, MacroReplayCallback callback);
 
-    void onCharacterDetectionStatusChanged(bool newStatus) override;
+    void onCaptureSystemNotify(std::string message) override;
 public:
     InputService(JNIEnv* env, jobject instance, CaptureThread* pCaptureThread) {
         // Java 객체를 전역 참조로 저장
         this->captureThread = pCaptureThread;
         this->kotlinInstance = env->NewGlobalRef(instance);
         this->captureThread->addObserver(this);
+        complexRepalyFlag = false;
     }
     void init(int port);
 };
