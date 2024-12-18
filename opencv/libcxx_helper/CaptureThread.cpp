@@ -235,6 +235,16 @@ void CaptureThread::captureFrame(cv::UMat currentFrame) {
         }
     }
 
+    if (!minimap_frame.empty()) {
+        cv::Vec3b target_color(0, 0, 221); // 찾고자 하는 색상
+
+        std::vector<cv::Point> runeMatch = find_color(minmapMat, target_color, 50);
+        if (!runeMatch.empty()) {
+            systemNotify("적 탐지");
+
+        }
+    }
+
 
 
     {

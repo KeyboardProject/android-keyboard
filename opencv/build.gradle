@@ -200,19 +200,23 @@ publishing {
 
 tasks.register("buildHostTools", Exec) {
     workingDir "${projectDir}"
+    def isWindows = System.getProperty('os.name').toLowerCase().contains('windows')
 
-    def protocFile = file("${projectDir}/tools/protoc.exe")
-    def grpcPluginFile = file("${projectDir}/tools/grpc_cpp_plugin.exe")
+    // OS별 실행 파일명 결정
+    def protocName = isWindows ? "protoc.exe" : "protoc"
+    def grpcPluginName = isWindows ? "grpc_cpp_plugin.exe" : "grpc_cpp_plugin"
+
+    def protocFile = file("${projectDir}/tools/${protocName}")
+    def grpcPluginFile = file("${projectDir}/tools/${grpcPluginName}")
 
     if (!protocFile.exists() || !grpcPluginFile.exists()) {
-        if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+        if (isWindows) {
             commandLine 'cmd', '/c', 'build_host_tools.bat'
         } else {
             commandLine 'bash', 'build_host_tools.sh'
         }
     } else {
-        // 이미 존재하는 경우 작업을 스킵
-        println("protoc 및 grpc_cpp_plugin이 이미 존재합니다. buildHostTools  작업을 건너뜁니다.")
+        println("protoc 및 grpc_cpp_plugin이 이미 존재합니다. buildHostTools 작업을 건너뜁니다.")
         enabled = false
     }
 }

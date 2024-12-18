@@ -24,9 +24,14 @@ add_subdirectory(${GRPC_SRC_DIR} ${GRPC_BUILD_DIR})
 
 get_filename_component(GRPC_PROTO_DIR ${GRPC_PROTO_RELATIVE_PATH} ABSOLUTE)
 
-# 호스트 툴 실행 파일 경로 설정
-set(PROTOBUF_PROTOC_EXECUTABLE ${pathOPENCV}/tools/protoc.exe)
-set(GRPC_CPP_PLUGIN_EXECUTABLE ${pathOPENCV}/tools/grpc_cpp_plugin.exe)
+# 호스트 툴 실행 파일 경로 설정 (OS 별로 설정)
+if(WIN32)
+    set(PROTOBUF_PROTOC_EXECUTABLE ${pathOPENCV}/tools/protoc.exe)
+    set(GRPC_CPP_PLUGIN_EXECUTABLE ${pathOPENCV}/tools/grpc_cpp_plugin.exe)
+else()
+    set(PROTOBUF_PROTOC_EXECUTABLE ${pathOPENCV}/tools/protoc)
+    set(GRPC_CPP_PLUGIN_EXECUTABLE ${pathOPENCV}/tools/grpc_cpp_plugin)
+endif()
 
 message(${PROTOBUF_PROTOC_EXECUTABLE})
 
@@ -49,8 +54,8 @@ set(PROTO_HDRS "")
 
 include_directories(${pathOPENCV}/native/jni/include)
 include_directories(includes)
-include_directories(${ANDROID_NDK}/sources/android/cpufeatures)  # 추가
-include_directories(${ANDROID_NDK}/sources/android/native_app_glue)  # 추가
+include_directories(${ANDROID_NDK}/sources/android/cpufeatures)
+include_directories(${ANDROID_NDK}/sources/android/native_app_glue)
 include_directories(${GRPC_THREAD_DIR})
 include_directories(${GRPC_PROTO_DIR})
 include_directories(${GRPC_INCLUDE_PATH})
