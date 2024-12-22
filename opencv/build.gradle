@@ -108,9 +108,11 @@ android {
 
         externalNativeBuild {
             cmake {
+                def hostOs = System.getProperty('os.name')
                 cppFlags "-std=c++17 -frtti -fexceptions"
                 arguments "-DANDROID_STL=c++_shared"
                 targets "native_lib"
+                arguments "-DHOST_OS_TYPE=${hostOs}"
             }
         }
 

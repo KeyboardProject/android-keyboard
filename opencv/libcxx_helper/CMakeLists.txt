@@ -25,15 +25,19 @@ add_subdirectory(${GRPC_SRC_DIR} ${GRPC_BUILD_DIR})
 get_filename_component(GRPC_PROTO_DIR ${GRPC_PROTO_RELATIVE_PATH} ABSOLUTE)
 
 # 호스트 툴 실행 파일 경로 설정 (OS 별로 설정)
-if(WIN32)
+message("HOST_OS_TYPE: ${HOST_OS_TYPE}")
+
+if(HOST_OS_TYPE MATCHES "Windows")
+    # Windows일 경우 실행할 로직
     set(PROTOBUF_PROTOC_EXECUTABLE ${pathOPENCV}/tools/protoc.exe)
     set(GRPC_CPP_PLUGIN_EXECUTABLE ${pathOPENCV}/tools/grpc_cpp_plugin.exe)
 else()
+    # 그 외 OS (Linux, Mac 등)
     set(PROTOBUF_PROTOC_EXECUTABLE ${pathOPENCV}/tools/protoc)
     set(GRPC_CPP_PLUGIN_EXECUTABLE ${pathOPENCV}/tools/grpc_cpp_plugin)
 endif()
 
-message(${PROTOBUF_PROTOC_EXECUTABLE})
+message("grpc plugin ${PROTOBUF_PROTOC_EXECUTABLE}")
 
 # 프로토콜 버퍼 파일 생성 디렉토리 설정
 set(GRPC_PROTO_GENS_DIR "${pathOPENCV}/generated")

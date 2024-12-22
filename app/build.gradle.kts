@@ -27,6 +27,15 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file(properties["RELEASE_STORE_FILE"] as String)
+            storePassword = properties["RELEASE_STORE_PASSWORD"] as String
+            keyAlias = properties["RELEASE_KEY_ALIAS"] as String
+            keyPassword = properties["RELEASE_KEY_PASSWORD"] as String
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -34,6 +43,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isDebuggable = true
@@ -87,14 +97,4 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     implementation ("androidx.localbroadcastmanager:localbroadcastmanager:1.0.0")
-
-//    implementation ("io.grpc:grpc-netty:1.65.1")
-//    implementation ("io.grpc:grpc-netty-shaded:1.65.1")
-//    implementation ("io.grpc:grpc-protobuf:1.65.1")
-//    implementation ("io.grpc:grpc-stub:1.65.1")
-//    implementation ("com.google.protobuf:protobuf-java:3.21.12")
-//    implementation ("javax.annotation:javax.annotation-api:1.3.2")
-//
-//    implementation(project(":grpc"))
-
 }

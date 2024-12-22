@@ -426,6 +426,10 @@ void CaptureThread::frameCallback(uvc_frame_t *frame, void *ptr) {
 
     if (pCaptureThread) {
         cv::UMat bgrUMat = pCaptureThread->convertFrame(frame);
+        if (bgrUMat.empty()) {
+            std::cerr << "Frame conversion failed: empty UMat returned." << std::endl;
+            return;
+        }
         pCaptureThread->captureFrame(bgrUMat);
     } else {
         LOGE("Invalid CaptureThread instance\n");
