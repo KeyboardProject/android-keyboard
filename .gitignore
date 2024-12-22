@@ -17,4 +17,6 @@ local.properties
 /opencv/tools
 /opencv/build/
 /opencv/.cxx/
+/opencv/generated
+
 
