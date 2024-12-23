@@ -29,7 +29,7 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file(properties["RELEASE_STORE_FILE"] as String)
+            storeFile = (properties["RELEASE_STORE_FILE"] as String).let { file(it) }
             storePassword = properties["RELEASE_STORE_PASSWORD"] as String
             keyAlias = properties["RELEASE_KEY_ALIAS"] as String
             keyPassword = properties["RELEASE_KEY_PASSWORD"] as String
