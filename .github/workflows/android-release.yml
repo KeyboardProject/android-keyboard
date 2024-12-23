@@ -46,11 +46,19 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
-
+      
+      - name: Cache Host Tools
+        uses: actions/cache@v4
+        id: cache-host-tools
+        with:
+          path: opencv/tools
+          key: ${{ runner.os }}-host-tools-${{ hashFiles('opencv/build_host_tools.sh') }}
+    
       - name: Build Host Tools
+        if: steps.cache-host-tools.outputs.cache-hit != 'true'
         run: |
           chmod +x opencv/build_host_tools.sh
-          cd opencv && ./build_host_tools.sh
+          cd opencv && ./build_host_tools.sh 
 
       - name: Create keystore file
         run: |
