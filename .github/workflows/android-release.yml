@@ -53,12 +53,6 @@ jobs:
         with:
           path: opencv/tools
           key: ${{ runner.os }}-host-tools-${{ hashFiles('opencv/build_host_tools.sh') }}
-    
-      - name: Build Host Tools
-        if: steps.cache-host-tools.outputs.cache-hit != 'true'
-        run: |
-          chmod +x opencv/build_host_tools.sh
-          cd opencv && ./build_host_tools.sh 
 
       - name: Create keystore file
         run: |
