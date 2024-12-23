@@ -55,11 +55,15 @@ jobs:
       - name: Create keystore file
         run: |
           echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > app/release.keystore.jks
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
       - name: Build Release APK
         run: |
           ./gradlew assembleRelease
         env:
-          RELEASE_STORE_FILE: release.keystore.jks  # 파일 이름 변경
+          RELEASE_STORE_FILE: release.keystore.jks
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
