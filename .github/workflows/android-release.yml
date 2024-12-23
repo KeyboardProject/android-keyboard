@@ -46,14 +46,14 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
-      
-      - name: Cache Host Tools
-        uses: actions/cache@v4
-        id: cache-host-tools
+    
+      - name: Restore Host Tools Cache
+        uses: actions/cache/restore@v4
+        id: cache-host-tools-restore
         with:
           path: opencv/tools
           key: ${{ runner.os }}-host-tools-${{ hashFiles('opencv/build_host_tools.sh') }}
-
+      
       - name: Create keystore file
         run: |
           echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > app/release.keystore.jks
@@ -70,10 +70,17 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
 
+      - name: Save Host Tools Cache
+        uses: actions/cache/save@v4
+        if: steps.cache-host-tools-restore.outputs.cache-hit != 'true'
+        with:
+          path: opencv/tools
+          key: ${{ runner.os }}-host-tools-${{ hashFiles('opencv/build_host_tools.sh') }}
+
       - name: Get version from tag
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
+      
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
