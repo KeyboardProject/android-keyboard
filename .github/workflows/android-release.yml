@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -46,14 +49,23 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
-    
+
+      - name: Restore gRPC build cache
+        uses: actions/cache/restore@v4
+        id: cache-grpc-build-restore
+        with:
+          path: |
+            opencv/outputs/arm64-v8a
+            opencv/outputs/armeabi-v7a
+          key: ${{ runner.os }}-grpc-build-${{ hashFiles('opencv/grpc/**') }}
+
       - name: Restore Host Tools Cache
         uses: actions/cache/restore@v4
         id: cache-host-tools-restore
         with:
           path: opencv/tools
           key: ${{ runner.os }}-host-tools-${{ hashFiles('opencv/build_host_tools.sh') }}
-      
+
       - name: Create keystore file
         run: |
           echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > app/release.keystore.jks
@@ -69,6 +81,15 @@ jobs:
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
+      - name: Save gRPC build cache
+        uses: actions/cache/save@v4
+        if: steps.cache-grpc-build-restore.outputs.cache-hit != 'true'
+        with:
+          path: |
+            opencv/outputs/arm64-v8a
+            opencv/outputs/armeabi-v7a
+          key: ${{ runner.os }}-grpc-build-${{ hashFiles('opencv/grpc/**') }}
 
       - name: Save Host Tools Cache
         uses: actions/cache/save@v4
@@ -90,4 +111,4 @@ jobs:
           draft: false
           prerelease: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
