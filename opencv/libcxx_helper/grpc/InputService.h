@@ -48,6 +48,9 @@ class InputService final : public GrpcServer, Input::Service, public CaptureSyst
     grpc::Status ImportProfile(grpc::ServerContext* context, const ImportProfileRequest* request, StatusResponse* response) override;
     grpc::Status ExportProfile(grpc::ServerContext* context, const ExportProfileRequest* request, ExportProfileResponse* response) override;
 
+    jobject createImportProfileRequestObject(JNIEnv* env, const ImportProfileRequest* request);
+    jobject createExportProfileRequestObject(JNIEnv* env, const ExportProfileRequest* request);
+
     grpc::Status RemoteKeyEvent(grpc::ServerContext* context, grpc::ServerReader<KeyboardEvent>* reader, InputEmpty* response) override;
     grpc::Status RemoteMouseEvent(grpc::ServerContext* context, grpc::ServerReader<MouseEvent>* reader, InputEmpty* response) override;
 

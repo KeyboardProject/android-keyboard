@@ -1,7 +1,6 @@
 package com.example.macro.grpc
 
 import android.util.Log
-import androidx.compose.runtime.key
 import com.example.macro.capture.CaptureThread
 import com.example.macro.macro.ComplexReplayRequest
 import com.example.macro.macro.KeyEvent
@@ -80,6 +79,27 @@ class InputService(private val keyboardMacro: KeyboardMacro, private val capture
         var TAG = "InputService";
         init {
             System.loadLibrary("native_lib")
+        }
+    }
+
+    // ImportProfile 구현
+    private fun importProfile(fileName: String, data: ByteArray) {
+        try {
+            // 바이트 배열을 직접 KeyboardMacro로 전달
+            Log.d(TAG, "Importing profile data: ${data.size} bytes");
+            keyboardMacro.importProfile(fileName, data)
+        } catch (e: Exception) {
+            Log.e(TAG, "ImportProfile 실패: ${e.message}")
+        }
+    }
+
+    // ExportProfile 구현 
+    private fun exportProfile(fileName: String): List<KeyEvent> {
+        try {
+            // KeyboardMacro에서 KeyEvent 리스트를 받아서 반환
+            return keyboardMacro.exportProfile(fileName)
+        } catch (e: Exception) {
+            throw RuntimeException("프로필 내보내기 실패: ${e.message}")
         }
     }
 }

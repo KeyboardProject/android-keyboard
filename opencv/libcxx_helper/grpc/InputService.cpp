@@ -5,6 +5,9 @@
 #include "InputService.h"
 #include "../jni_helper.h"
 #include <jni.h>
+#include <iostream>
+#include <string>
+#include <vector>
 
 grpc::Status InputService::StartRecording(grpc::ServerContext* context, const StartRequest* request,
                                               StatusResponse* response) {
@@ -312,17 +315,140 @@ grpc::Status InputService::DeleteMacros(grpc::ServerContext* context, const Dele
     return grpc::Status::OK;
 }
 
-grpc::Status InputService::ImportProfile(grpc::ServerContext* context, const ImportProfileRequest* request, StatusResponse* response) {
+// gRPC handler for ImportProfile
+grpc::Status InputService::ImportProfile(grpc::ServerContext* context, 
+                                       const ImportProfileRequest* request,
+                                       StatusResponse* response) {
+    std::string methodName = "importProfile";
+    std::string methodSig = "(Ljava/lang/String;[B)V";
+  
+    bool isAttached;
+    JNIEnv* env = getJNIEnv(isAttached);
 
-    return grpc::Status::OK;
+    if (env == nullptr) {
+        return grpc::Status(grpc::StatusCode::INTERNAL, "Unable to obtain JNIEnv.");
+    }
+
+    jstring filename = nullptr;
+    jbyteArray byteArray = nullptr;
+
+    try {
+        // 파일 이름 문자열 생성
+        filename = env->NewStringUTF(request->filename().c_str());
+
+        // 바이트 배열 생성
+        const std::string& savData = request->savfile();
+        byteArray = env->NewByteArray(savData.size());
+        env->SetByteArrayRegion(byteArray, 0, savData.size(),
+                              reinterpret_cast<const jbyte*>(savData.data()));
+
+        // Java 메서드 호출
+        std::vector<JavaArg> args = { JavaArg{filename}, JavaArg{byteArray} };
+        callJavaMethod(methodName, methodSig, args);
+
+        response->set_message("프로필 가져오기 성공: " + request->filename());
+        return grpc::Status::OK;
+    } catch (const std::exception& e) {
+        // 에러 발생 시 로컬 참조 정리
+        if (filename != nullptr) env->DeleteLocalRef(filename);
+        if (byteArray != nullptr) env->DeleteLocalRef(byteArray);
+
+        return grpc::Status(grpc::StatusCode::INTERNAL, 
+                          std::string("프로필 가져오기 실패: ") + e.what());
+    }
 }
 
-grpc::Status InputService::ExportProfile(grpc::ServerContext* context, const ExportProfileRequest* request, ExportProfileResponse* response) {
+// gRPC handler for ExportProfile
+grpc::Status InputService::ExportProfile(grpc::ServerContext* context,
+                                       const ExportProfileRequest* request,
+                                       ExportProfileResponse* response) {
+    std::string methodName = "exportProfile";
+    std::string methodSig = "(Ljava/lang/String;)Ljava/util/List;";
 
-    return grpc::Status::OK;
+    bool isAttached;
+    JNIEnv* env = getJNIEnv(isAttached);
+
+    if (env == nullptr) {
+        return grpc::Status(grpc::StatusCode::INTERNAL, "Unable to obtain JNIEnv.");
+    }
+
+    try {
+        // 파라미터 준비
+        jstring filename = env->NewStringUTF(request->filename().c_str());
+        std::vector<JavaArg> args = { JavaArg{filename} };
+
+        // Java 메서드 호출 및 KeyEvent 리스트 반환값 처리
+        auto keyEventListMapper = [](JNIEnv* env, jobject list) -> std::vector<unsigned char> {
+            std::vector<unsigned char> result;
+
+            // List의 크기 가져오기
+            jclass listClass = env->GetObjectClass(list);
+            jmethodID sizeMethod = env->GetMethodID(listClass, "size", "()I");
+            jint listSize = env->CallIntMethod(list, sizeMethod);
+
+            // get 메서드 가져오기
+            jmethodID getMethod = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
+
+            // 모든 KeyEvent 처리
+            for (jint i = 0; i < listSize; i++) {
+                jobject keyEvent = env->CallObjectMethod(list, getMethod, i);
+                
+                // KeyEvent에서 data와 delay 가져오기
+                jclass keyEventClass = env->GetObjectClass(keyEvent);
+                jmethodID getDataMethod = env->GetMethodID(keyEventClass, "getData", "()[B");
+                jmethodID getDelayMethod = env->GetMethodID(keyEventClass, "getDelay", "()J");
+                
+                // delay 값 가져오기
+                jlong delay = env->CallLongMethod(keyEvent, getDelayMethod);
+                
+                // data 바이트 배열 가져오기
+                jbyteArray byteArray = static_cast<jbyteArray>(env->CallObjectMethod(keyEvent, getDataMethod));
+                jsize length = env->GetArrayLength(byteArray);
+                jbyte* bytes = env->GetByteArrayElements(byteArray, nullptr);
+
+                // 텍스트 형식으로 변환
+                std::stringstream ss;
+                ss << "Time diff: " << std::hex << std::uppercase << delay << "ns, Data: ";
+                for (jsize j = 0; j < length; j++) {
+                    if (j > 0) ss << " ";
+                    ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') 
+                       << (static_cast<int>(bytes[j]) & 0xFF);
+                }
+                ss << "\n";
+                std::string line = ss.str();
+
+                // 텍스트 라인을 바이트 배열로 변환하여 결과에 추가
+                result.insert(result.end(), line.begin(), line.end());
+
+                // 리소스 해제
+                env->ReleaseByteArrayElements(byteArray, bytes, JNI_ABORT);
+                env->DeleteLocalRef(byteArray);
+                env->DeleteLocalRef(keyEvent);
+                env->DeleteLocalRef(keyEventClass);
+            }
+
+            env->DeleteLocalRef(listClass);
+            return result;
+        };
+
+        std::vector<unsigned char> fileData = callJavaMethod<std::vector<unsigned char>>(
+            methodName, methodSig, args,
+            "Ljava/util/List;",
+            keyEventListMapper
+        );
+
+        // 응답 설정
+        response->set_savfile(fileData.data(), fileData.size());
+        return grpc::Status::OK;
+    } catch (const std::exception& e) {
+        return grpc::Status(grpc::StatusCode::INTERNAL, 
+                          std::string("프로필 내보내기 실패: ") + e.what());
+    }
 }
 
-grpc::Status InputService::RemoteKeyEvent(grpc::ServerContext* context, grpc::ServerReader<KeyboardEvent>* reader, InputEmpty* response) {
+grpc::Status InputService::RemoteKeyEvent(grpc::ServerContext* context, 
+                                          grpc::ServerReader<KeyboardEvent>* reader, 
+                                          InputEmpty* response) {
     KeyboardEvent event;
     while (reader->Read(&event)) {
         // KeyboardEvent 처리
@@ -333,7 +459,7 @@ grpc::Status InputService::RemoteKeyEvent(grpc::ServerContext* context, grpc::Se
         std::string methodSig = "([B)V";
         std::vector<uint8_t> data(event.data().begin(), event.data().end());
 
-//        LOGD("INPUT MESSAGE");
+        // LOGD("INPUT MESSAGE");
 
         bool isAttached;
         JNIEnv* env = getJNIEnv(isAttached);
@@ -361,7 +487,7 @@ grpc::Status InputService::RemoteKeyEvent(grpc::ServerContext* context, grpc::Se
         // Java 메서드 호출
         callJavaMethod(methodName, methodSig, args);
 
-        // 로컬 참조 해제
+        // 로컬 참조 해제 및 스레드 분리
         if (env->ExceptionCheck()) {
             env->ExceptionDescribe(); // 예외 내용을 출력
             env->ExceptionClear();    // 예외 상태를 클리어

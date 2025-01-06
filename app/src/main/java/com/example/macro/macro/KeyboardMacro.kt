@@ -59,21 +59,28 @@ class KeyboardMacro private constructor(private val context: Context) {
         }
     }
 
+    private fun getProfilesDir(): File {
+        val profilesDir = File(context.filesDir, "profiles")
+        if (!profilesDir.exists()) {
+            profilesDir.mkdirs()
+        }
+        return profilesDir
+    }
+
     // 녹화 시작
     fun startRecord(fileName: String) {
-        val appDir = context.filesDir
-        recordingFile = File(appDir, fileName)
+        val profilesDir = getProfilesDir()
+        recordingFile = File(profilesDir, fileName)
         recordingFile?.let {
             isRecording = true
             startTime = System.nanoTime()
             writer = FileWriter(it, false)
 
-            // 주기적으로 큐를 비우고 파일에 기록
-            timer.scheduleAtFixedRate(0, 1000) {  // 1초마다 실행
+            timer.scheduleAtFixedRate(0, 1000) {
                 if (isRecording) {
                     processInputs()
                 } else {
-                    cancel()  // 녹화가 중지되면 타이머 취소
+                    cancel()
                 }
             }
         }
@@ -106,21 +113,19 @@ class KeyboardMacro private constructor(private val context: Context) {
     }
 
     fun loadRecordedFile(fileName: String): List<KeyEvent> {
-        val appDir = context.filesDir
-        val file = File(appDir, fileName)
+        val file = File(getProfilesDir(), fileName)
         val events = mutableListOf<KeyEvent>()
 
         if (!file.exists()) {
-            println("File $fileName does not exist")
+            Log.e(TAG, "File $fileName does not exist")
             return events
         }
 
         file.forEachLine { line ->
-            // 정규식을 이용해 시간과 데이터를 추출
             val matchResult = Regex("Time diff: ([A-Fa-f0-9]+)ns, Data: ([0-9a-fA-F ]+)").find(line)
             if (matchResult != null) {
                 val (delayHex, dataHex) = matchResult.destructured
-                val delay = delayHex.toLong(16) // 16진수 시간을 10진수로 변환
+                val delay = delayHex.toLong(16)
                 val data = dataHex.split(" ").map { it.toInt(16).toByte() }.toByteArray()
                 events.add(KeyEvent(delay, data))
             }
@@ -263,19 +268,11 @@ class KeyboardMacro private constructor(private val context: Context) {
     }
 
     fun getFileList(): List<String> {
-        // 앱 전용 디렉터리 내 파일 목록을 가져옴
-        val directory = context.filesDir // 또는 context.getExternalFilesDir(null)
-
-        if (directory.exists() && directory.isDirectory) {
-            // 디렉터리 내의 파일 목록을 반환
-            return directory.listFiles()
-                ?.filter { it.isFile } // 파일만 필터링
-                ?.map { it.name }      // 파일 이름만 추출
-                ?: emptyList()
-        }
-
-        // 디렉터리가 없거나 파일이 없는 경우 빈 리스트 반환
-        return emptyList()
+        val profilesDir = getProfilesDir()
+        return profilesDir.listFiles()
+            ?.filter { it.isFile }
+            ?.map { it.name }
+            ?: emptyList()
     }
 
     fun cleanup() {
@@ -289,6 +286,21 @@ class KeyboardMacro private constructor(private val context: Context) {
 
     fun handleKeyboardInput(data: ByteArray) {
         gattServerService?.sendReport(data)
+    }
+
+    // 프로필 가져오기 - 바이트 배열로 직접 처리
+    fun importProfile(fileName: String, data: ByteArray) {
+        val file = File(getProfilesDir(), fileName)
+        file.writeBytes(data)
+    }
+
+    // 프로필 내보내기 - KeyEvent 리스트로 반환
+    fun exportProfile(fileName: String): List<KeyEvent> {
+        val file = File(getProfilesDir(), fileName)
+        if (!file.exists()) {
+            throw IllegalArgumentException("Profile file not found: $fileName")
+        }
+        return loadRecordedFile(fileName) // 이미 구현된 파일 로드 함수 재사용
     }
 
     init {
