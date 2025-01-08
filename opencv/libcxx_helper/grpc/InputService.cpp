@@ -310,9 +310,40 @@ grpc::Status InputService::GetMacroDetail(grpc::ServerContext* context, const Ge
 }
 
 grpc::Status InputService::DeleteMacros(grpc::ServerContext* context, const DeleteMacrosRequest* request, StatusResponse* response) {
+    std::string methodName = "deleteMacros";
+    std::string methodSig = "(Ljava/util/List;)V";
 
-    response->set_message("파일 삭제 완료");
-    return grpc::Status::OK;
+    bool isAttached;
+    JNIEnv* env = getJNIEnv(isAttached);
+
+    if (env == nullptr) {
+        return grpc::Status(grpc::StatusCode::INTERNAL, "JNI 환경을 가져오지 못했습니다.");
+    }
+
+    try {
+        // ArrayList 생성
+        jclass arrayListClass = env->FindClass("java/util/ArrayList");
+        jmethodID arrayListConstructor = env->GetMethodID(arrayListClass, "<init>", "()V");
+        jobject arrayList = env->NewObject(arrayListClass, arrayListConstructor);
+        jmethodID addMethod = env->GetMethodID(arrayListClass, "add", "(Ljava/lang/Object;)Z");
+
+        // 파일 이름들을 ArrayList에 추가
+        for (const auto& filename : request->filenames()) {
+            jstring jFilename = env->NewStringUTF(filename.c_str());
+            env->CallBooleanMethod(arrayList, addMethod, jFilename);
+            env->DeleteLocalRef(jFilename);
+        }
+
+        // Java 메소드 호출
+        std::vector<JavaArg> args = { arrayList };
+        callJavaMethod(methodName, methodSig, args);
+
+        response->set_message("매크로 파일 삭제 완료");
+        return grpc::Status::OK;
+    } catch (const std::exception& e) {
+        return grpc::Status(grpc::StatusCode::INTERNAL, 
+                          std::string("매크로 파일 삭제 실패: ") + e.what());
+    }
 }
 
 // gRPC handler for ImportProfile

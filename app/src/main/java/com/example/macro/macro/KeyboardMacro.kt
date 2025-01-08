@@ -303,6 +303,22 @@ class KeyboardMacro private constructor(private val context: Context) {
         return loadRecordedFile(fileName) // 이미 구현된 파일 로드 함수 재사용
     }
 
+    fun deleteMacros(fileNames: List<String>) {
+        val profilesDir = getProfilesDir()
+        fileNames.forEach { fileName ->
+            val file = File(profilesDir, fileName)
+            if (file.exists()) {
+                if (file.delete()) {
+                    Log.d(TAG, "파일 삭제 성공: $fileName")
+                } else {
+                    Log.e(TAG, "파일 삭제 실패: $fileName")
+                }
+            } else {
+                Log.w(TAG, "파일이 존재하지 않음: $fileName")
+            }
+        }
+    }
+
     init {
         val intent = Intent(context, GattServerService::class.java)
         val success = context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)

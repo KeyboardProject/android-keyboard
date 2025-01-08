@@ -102,4 +102,9 @@ class InputService(private val keyboardMacro: KeyboardMacro, private val capture
             throw RuntimeException("프로필 내보내기 실패: ${e.message}")
         }
     }
+
+    private fun deleteMacros(fileNames: List<String>) {
+        Log.d(TAG, "매크로 파일 삭제 요청: ${fileNames.joinToString()}")
+        keyboardMacro.deleteMacros(fileNames)
+    }
 }
