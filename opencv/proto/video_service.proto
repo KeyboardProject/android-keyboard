@@ -8,6 +8,7 @@ service VideoService {
   rpc StartMinimap (Empty) returns (MinimapResponse);
   rpc StopMinimap (Empty) returns (MinimapResponse);
   rpc CalculateMinimap (Empty) returns (stream VideoFrame);
+  rpc StreamCube (Empty) returns (stream VideoFrame);
 }
 
 message Empty {}
@@ -30,4 +31,5 @@ message VideoRequest{
 
 message VideoFrame {
   bytes frame = 1;
+  string ocr_text = 2;
 }

@@ -109,6 +109,7 @@ add_library(native_lib SHARED
         grpc/VideoService.cpp
         grpc/InputService.cpp
         grpc/RestartService.cpp
+        service/CubeService.cpp
         ${PROTO_SRCS}
         ${PROTO_HDRS}
 )

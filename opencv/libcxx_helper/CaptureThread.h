@@ -28,6 +28,12 @@ public:
     virtual void onCaptureSystemNotify(std::string message) = 0;
 };
 
+class FrameObserver {
+public:
+    virtual ~FrameObserver() = default;
+    virtual void onFrameCapture(const cv::UMat& frame) = 0;
+};
+
 class CaptureThread {
 public:
     std::mutex mtx;
@@ -41,6 +47,7 @@ public:
     void stopMinimap();
     cv::UMat getMinimap();
     cv::UMat getVideo();
+    cv::UMat getCubeFrame();
     void connectDevice(int vendor_id, int product_id,
                       int file_descriptor, int bus_num,
                       int dev_addr, const char * usbfs);
@@ -55,6 +62,19 @@ public:
     void removeObserver(CaptureSystemNotify* observer);
 
     bool calculateMinimap();
+
+    void startCubeDetection();
+    void stopCubeDetection();
+
+    struct CubeFrameResult {
+        cv::UMat frame;
+        std::string ocr_text;
+        bool is_rerolled;
+    };
+
+    void addFrameObserver(FrameObserver* observer);
+    void removeFrameObserver(FrameObserver* observer);
+
 private:
     AAssetManager* mgr;  // 추가
     cv::UMat frame;
@@ -62,6 +82,7 @@ private:
     double minimap_ratio;
     std::shared_mutex frame_mutex;
     std::shared_mutex minimap_frame_mutex;
+    std::shared_mutex cube_frame_mutex;
     std::thread captureThread;
     cv::Point mm_tl;
     cv::Point mm_br;
@@ -98,6 +119,21 @@ private:
     cv::UMat MM_BR_TEMPLATE;
     cv::UMat PLAYER_TEMPLATE;
     cv::UMat RUNE_TEMPLATE;
+
+    cv::UMat CUBE_TL_TEMPLATE;  // 큐브 왼쪽 상단 템플릿
+    cv::UMat CUBE_BR_TEMPLATE;  // 큐브 오른쪽 하단 템플릿
+    cv::Point cube_tl;          // 큐브 영역 좌상단
+    cv::Point cube_br;          // 큐브 영역 우하단
+    bool cube_detection_active;  // 큐브 검출 활성화 상태
+    cv::UMat cube_frame;
+
+    bool previous_frame_empty = false;  // 이전 프레임이 비어있었는지 확인
+    std::string last_ocr_text;         // 마지막 OCR 텍스트
+
+    std::vector<FrameObserver*> frame_observers;
+    void notifyFrameObservers(const cv::UMat& frame);
+
+    cv::UMat readImageFromAssets(AAssetManager* mgr, const char* filename);
 };
 
 extern "C" {

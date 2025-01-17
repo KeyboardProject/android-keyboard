@@ -37,6 +37,30 @@ grpc::Status VideoServiceImpl::StreamVideo(grpc::ServerContext* context, const V
     }
     return grpc::Status::OK;
 }
+
+grpc::Status VideoServiceImpl::StreamCube(grpc::ServerContext* context, const Empty* request, grpc::ServerWriter<VideoFrame>* writer) {
+//    while (!context->IsCancelled()) {
+//        auto result = captureThread->getCubeFrameWithOCR();
+//
+//        // 리롤이 감지되었을 때만 프레임과 OCR 텍스트를 전송
+//        if (result.is_rerolled && !result.frame.empty()) {
+//            std::vector<uchar> buffer;
+//            cv::imencode(".jpg", result.frame, buffer);
+//
+//            VideoFrame videoFrame;
+//            videoFrame.set_frame(buffer.data(), buffer.size());
+//            videoFrame.set_ocr_text(result.ocr_text);
+//
+//            if (!writer->Write(videoFrame)) {
+//                break;
+//            }
+//        }
+//
+//        std::this_thread::sleep_for(std::chrono::milliseconds(33));
+//    }
+    return grpc::Status::OK;
+}
+
 grpc::Status VideoServiceImpl::CalculateMinimap(grpc::ServerContext* context, const Empty* request, grpc::ServerWriter<VideoFrame>* writer) {
     captureThread->calculateMinimap();
 

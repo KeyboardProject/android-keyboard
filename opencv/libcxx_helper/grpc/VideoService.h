@@ -23,6 +23,8 @@ class VideoServiceImpl final : public GrpcServer, public VideoService::Service {
 public:
     grpc::Status StreamVideo(grpc::ServerContext* context, const VideoRequest* request, grpc::ServerWriter<VideoFrame>* writer) override;
 
+    grpc::Status StreamCube(grpc::ServerContext* context, const Empty* request, grpc::ServerWriter<VideoFrame>* writer) override;
+
     grpc::Status StartMinimap(grpc::ServerContext* context, const Empty* request, MinimapResponse* response) override;
 
     grpc::Status CalculateMinimap(grpc::ServerContext* context, const Empty* request, grpc::ServerWriter<VideoFrame>* writer) override;

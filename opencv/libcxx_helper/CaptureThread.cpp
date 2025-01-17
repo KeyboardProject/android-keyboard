@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 #include "UVCCamera/UVCCamera.h"
 
-cv::UMat readImageFromAssets(AAssetManager* mgr, const char* filename) {
+cv::UMat CaptureThread::readImageFromAssets(AAssetManager* mgr, const char* filename) {
     AAsset* asset = AAssetManager_open(mgr, filename, AASSET_MODE_BUFFER);
     if (!asset) {
         LOGE("Error: Could not open asset %s", filename);
@@ -34,6 +34,10 @@ CaptureThread::CaptureThread(AAssetManager* mgr) : mgr(mgr) {
     MM_BR_TEMPLATE = readImageFromAssets(mgr, "minimap_br_template.png");
     PLAYER_TEMPLATE = readImageFromAssets(mgr, "player_template.png");
     RUNE_TEMPLATE = readImageFromAssets(mgr, "rune_template.png");
+
+    CUBE_TL_TEMPLATE = readImageFromAssets(mgr, "cube_tl.png");
+    CUBE_BR_TEMPLATE = readImageFromAssets(mgr, "cube_br.png");
+    cube_detection_active = false;
 
     ready = false;
     updateCharacterDetectionStatus(false);
@@ -82,6 +86,11 @@ cv::UMat CaptureThread::getMinimap() {
 cv::UMat CaptureThread::getVideo() {
     std::shared_lock<std::shared_mutex> lock(frame_mutex);
     return frame.clone();
+}
+
+cv::UMat CaptureThread::getCubeFrame() {
+    std::shared_lock<std::shared_mutex> lock(cube_frame_mutex);
+    return cube_frame.clone();
 }
 
 void CaptureThread::processFrame(const uint8_t* frameBuffer, int width, int height) {
@@ -190,9 +199,17 @@ std::vector<cv::Point> find_color(const cv::Mat& minimap_frame, const cv::Vec3b&
     return selected_cluster;
 }
 
-
+void CaptureThread::notifyFrameObservers(const cv::UMat& frame) {
+    // 각 observer에 대해 새로운 스레드 생성
+    for (auto observer : frame_observers) {
+        std::thread([observer, frame]() {
+            observer->onFrameCapture(frame);
+        }).detach();  // 스레드를 분리하여 백그라운드에서 실행
+    }
+}
 
 void CaptureThread::captureFrame(cv::UMat currentFrame) {
+    // 프레임 캡처
     {
         std::unique_lock<std::shared_mutex> lock(frame_mutex, std::try_to_lock);
         if (lock.owns_lock()) {
@@ -201,6 +218,7 @@ void CaptureThread::captureFrame(cv::UMat currentFrame) {
         }
     }
 
+    // 미니맵 관련 처리
     if (mm_tl.x < 0 || mm_tl.y < 0 || mm_br.x > frame.cols || mm_br.y > frame.rows || mm_tl.x > mm_br.x || mm_tl.y > mm_br.y) {
         LOGE("Error: Minimap coordinates are out of bounds");
         return;
@@ -213,11 +231,10 @@ void CaptureThread::captureFrame(cv::UMat currentFrame) {
     auto now = std::chrono::steady_clock::now();
 
     if(isCharacterDetectionActive) {
-        cv::Vec3b target_color(68, 221, 255); // 찾고자 하는 색상
-
+        // 기존 미니맵 캐릭터 검출 코드 유지
+        cv::Vec3b target_color(68, 221, 255);
         std::vector<cv::Point> player_points = find_color(minmapMat, target_color, 50);
         if (!player_points.empty()) {
-            // 클러스터의 첫 번째 픽셀을 기준 좌표로 사용
             cv::Point center = player_points[0];
         } else {
             if (now - lastDetectionTime > detectionTimeout) {
@@ -226,9 +243,9 @@ void CaptureThread::captureFrame(cv::UMat currentFrame) {
         }
     }
 
+    // 기존 룬, 적 탐지 코드 유지
     if (!minimap_frame.empty()) {
-        cv::Vec3b target_color(255, 102, 221); // 찾고자 하는 색상
-
+        cv::Vec3b target_color(255, 102, 221);
         std::vector<cv::Point> runeMatch = find_color(minmapMat, target_color, 50);
         if (!runeMatch.empty()) {
             systemNotify("룬 탐지");
@@ -236,25 +253,20 @@ void CaptureThread::captureFrame(cv::UMat currentFrame) {
     }
 
     if (!minimap_frame.empty()) {
-        cv::Vec3b target_color(0, 0, 221); // 찾고자 하는 색상
-
+        cv::Vec3b target_color(0, 0, 221);
         std::vector<cv::Point> runeMatch = find_color(minmapMat, target_color, 50);
         if (!runeMatch.empty()) {
             systemNotify("적 탐지");
-
         }
     }
-
-
 
     {
         std::unique_lock<std::shared_mutex> lock(minimap_frame_mutex);
         minimap = minimap_frame.clone();
     }
 
-    if (!ready) {
-        ready = true;
-    }
+    // 옵저버를 통해 다른 클래스에 frame 캡처를 알림
+    notifyFrameObservers(currentFrame);
 }
 
 void CaptureThread::initCaptureMinimap() {
@@ -498,6 +510,25 @@ void CaptureThread::connectDevice(int vendor_id, int product_id, int file_descri
     }
 
     return;
+}
+
+void CaptureThread::startCubeDetection() {
+    cube_detection_active = true;
+}
+
+void CaptureThread::stopCubeDetection() {
+    cube_detection_active = false;
+}
+
+void CaptureThread::addFrameObserver(FrameObserver* observer) {
+    frame_observers.push_back(observer);
+}
+
+void CaptureThread::removeFrameObserver(FrameObserver* observer) {
+    frame_observers.erase(
+        std::remove(frame_observers.begin(), frame_observers.end(), observer),
+        frame_observers.end()
+    );
 }
 
 extern "C" {
