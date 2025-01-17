@@ -470,7 +470,7 @@ void CaptureThread::connectDevice(int vendor_id, int product_id, int file_descri
                 uvc_get_stream_ctrl_format_size(
                         _mDeviceHandle, &_ctrl, /* 네고셔블한 스트림 파라미터 */
                         UVC_FRAME_FORMAT_YUYV, /* 프레임 포맷 */
-                        1280, 720, 30 /* 해상도와 프레임 속도 */
+                        1280, 720, 10 /* 해상도와 프레임 속도 */
                 );
                 uvc_error_t result = uvc_start_streaming_bandwidth(
                         _mDeviceHandle, &_ctrl, CaptureThread::frameCallback, (void *)this, 1.0f, 0);
