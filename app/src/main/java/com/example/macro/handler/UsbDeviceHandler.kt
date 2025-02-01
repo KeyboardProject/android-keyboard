@@ -45,7 +45,16 @@ class UsbDeviceHandler(
                                 },
                                 PendingIntent.FLAG_MUTABLE
                             )
-                            usbManager.requestPermission(it, permissionIntent)
+                            Log.d(TAG,"request permisson $it")
+                            var validDevice = ""
+                            validDevice = usbHelper.getUsbDeviceType(it);
+                            if (validDevice == "CaptureBoard" || validDevice == "Keyboard") {
+                                Log.d(TAG,"request permisson $validDevice")
+                                usbManager.requestPermission(it, permissionIntent)
+                            } else {
+                                Log.e(TAG, "USB device is not valid. so don't request permission")
+                            }
+
                         }
                     }
                 }

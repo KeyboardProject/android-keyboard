@@ -23,6 +23,7 @@ android {
             abiFilters.apply {
                 add("arm64-v8a")
                 add("armeabi-v7a")
+                add("x86_64")
             }
         }
     }
@@ -97,4 +98,8 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     implementation ("androidx.localbroadcastmanager:localbroadcastmanager:1.0.0")
+    implementation("com.google.mlkit:text-recognition:16.0.0")
+    implementation("com.google.mlkit:text-recognition-korean:16.0.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+    implementation("com.rafakob:floatingedittext:1.0.5")
 }

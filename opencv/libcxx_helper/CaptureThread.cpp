@@ -27,8 +27,13 @@ cv::UMat CaptureThread::readImageFromAssets(AAssetManager* mgr, const char* file
     return img.getUMat(cv::ACCESS_READ);
 }
 
+
 CaptureThread::CaptureThread(AAssetManager* mgr) : mgr(mgr) {
     LOGI("CaptureThread initialized");
+
+    mDeviceHandle = NULL;
+    mDevice = NULL;
+    mContext = NULL;
 
     MM_TL_TEMPLATE = readImageFromAssets(mgr, "minimap_tl_template.png");
     MM_BR_TEMPLATE = readImageFromAssets(mgr, "minimap_br_template.png");
@@ -51,8 +56,44 @@ void CaptureThread::start() {
     }
 }
 
+void CaptureThread::waitForThreadCompletion() {
+    // 스레드가 완전히 종료될 때까지 대기
+    while (thread_running.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
+
 void CaptureThread::stop() {
     running = false;
+    device_connected = false;
+    
+    // 스레드가 완전히 종료될 때까지 대기
+    waitForThreadCompletion();
+    
+    {
+        std::lock_guard<std::mutex> lock(device_mutex);
+        cleanupDevice();
+    }
+    
+    // 모든 observer 제거
+    {
+        std::vector<CaptureSystemNotify*>().swap(observers);
+        std::vector<FrameObserver*>().swap(frame_observers);
+    }
+    
+    // 프레임 버퍼 정리
+    {
+        std::unique_lock<std::shared_mutex> lock(frame_mutex);
+        frame.release();
+    }
+    {
+        std::unique_lock<std::shared_mutex> lock(minimap_frame_mutex);
+        minimap.release();
+    }
+    {
+        std::unique_lock<std::shared_mutex> lock(cube_frame_mutex);
+        cube_frame.release();
+    }
 }
 
 void CaptureThread::addObserver(CaptureSystemNotify* observer) {
@@ -287,11 +328,11 @@ bool CaptureThread::calculateMinimap() {
     {
         if (frameReady) {
             {
-                std::shared_lock<std::shared_mutex> lock(frame_mutex); // Read lock
+                std::shared_lock<std::shared_mutex> lock(frame_mutex);
                 if (frameReady) {
                     currentFrame = frame.clone();
                 } else {
-                    std::this_thread::sleep_for(std::chrono::seconds(1)); // Wait if frame not ready
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
                     return false;
                 }
             }
@@ -349,7 +390,7 @@ cv::UMat CaptureThread::filterColor(const cv::UMat &img, const std::vector<std::
     return result;
 }
 
-std::pair<cv::Point, cv::Point> CaptureThread::single_match(const cv::UMat &image, const cv::UMat &templ) {
+std::pair<cv::Point, cv::Point> CaptureThread::single_match(const cv::UMat& image, const cv::UMat& templ) {
     cv::UMat gray;
     cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
 
@@ -408,7 +449,7 @@ cv::UMat CaptureThread::convertFrame(uvc_frame_t *frame) {
 
     if (frame_forUMat == UVC_FRAME_FORMAT_YUYV) {
         // YUYV 데이터를 BGR로 변환
-        cv::Mat yuyvMat(height, width, CV_8UC4, frame->data);
+        cv::Mat yuyvMat(height, width, CV_8UC2, frame->data);
         cv::UMat bgrUMat;
         cv::cvtColor(yuyvMat, bgrUMat, cv::COLOR_YUV2BGR_YUYV);
 
@@ -433,84 +474,105 @@ cv::UMat CaptureThread::convertFrame(uvc_frame_t *frame) {
 }
 
 void CaptureThread::frameCallback(uvc_frame_t *frame, void *ptr) {
-    CaptureThread *pCaptureThread = dynamic_cast<CaptureThread *>(static_cast<CaptureThread *>(ptr));
+     CaptureThread *pCaptureThread = static_cast<CaptureThread *>(ptr);
+    
+     if (!pCaptureThread || !pCaptureThread->device_connected) {
+         return;
+     }
+    
+     std::unique_lock<std::mutex> lock(pCaptureThread->device_mutex, std::try_to_lock);
+     if (!lock.owns_lock()) {
+         return;  // 디바이스가 정리 중이면 바로 리턴
+     }
+    
+     if (!pCaptureThread->device_connected) { // 추가된 확인
+         return;
+     }
 
-
-    if (pCaptureThread) {
-        cv::UMat bgrUMat = pCaptureThread->convertFrame(frame);
-        if (bgrUMat.empty()) {
-            std::cerr << "Frame conversion failed: empty UMat returned." << std::endl;
-            return;
-        }
-        pCaptureThread->captureFrame(bgrUMat);
-    } else {
-        LOGE("Invalid CaptureThread instance\n");
-    }
+     pCaptureThread->thread_running = true;
+    
+     try {
+         if (!pCaptureThread->mDeviceHandle) {  // 디바이스 핸들 재확인
+             return;
+         }
+        
+         cv::UMat bgrUMat = pCaptureThread->convertFrame(frame);
+         if (!bgrUMat.empty()) {
+             pCaptureThread->captureFrame(bgrUMat);
+         }
+     } catch (...) {
+         LOGE("Exception in frameCallback");
+     }
+    
+     pCaptureThread->thread_running = false;
 }
 
 void CaptureThread::connectDevice(int vendor_id, int product_id, int file_descriptor, int bus_num,
-                                 int dev_addr, const char *usbfs) {
+                                  int dev_addr, const char *usbfs) {
+    std::lock_guard<std::mutex> lock(device_mutex);
+
+    // 이전 연결이 있다면 정리
+    if (device_connected.load()) {
+        LOGI("이미 연결된 장치가 있습니다. 기존 장치를 정리합니다.");
+        cleanupDevice();
+    }
 
     uvc_error_t result = UVC_ERROR_BUSY;
 
-    uvc_device_t *_mDevice;
-    uvc_device_handle_t *_mDeviceHandle = NULL;
-    uvc_context_t *_mContext = NULL;
-    uvc_stream_ctrl_t _ctrl;
-
-    if (!_mDeviceHandle && file_descriptor) {
-        if (UNLIKELY(!_mContext)) {
-            result = uvc_init2(&_mContext, NULL, usbfs);
-            LOGI("uvc_init2 %d", result);
-            if (UNLIKELY(result < 0)) {
-                LOGD("failed to init libuvc");
-                return;
-            }
+    if (UNLIKELY(!mContext)) {
+        result = uvc_init2(&mContext, NULL, usbfs);
+        LOGI("uvc_init2 결과: %d", result);
+        if (UNLIKELY(result < 0)) {
+            LOGE("libuvc 초기화 실패: %d", result);
+            return;
         }
-        file_descriptor = dup(file_descriptor);
-        LOGI("fd test: %d",file_descriptor);
-        LOGI("vendor %d", vendor_id);
-        LOGI("product %d", product_id);
-        LOGI("bus %d", bus_num);
-        LOGI("dev %d", dev_addr);
+    }
 
+    file_descriptor = dup(file_descriptor);
+    LOGI("파일 디스크립터: %d", file_descriptor);
+    LOGI("Vendor ID: %d", vendor_id);
+    LOGI("Product ID: %d", product_id);
+    LOGI("Bus 번호: %d", bus_num);
+    LOGI("Device 주소: %d", dev_addr);
 
-        result = uvc_get_device_with_fd(_mContext, &_mDevice, vendor_id, product_id, NULL, file_descriptor, bus_num, dev_addr);
+    result = uvc_get_device_with_fd(mContext, &mDevice, vendor_id, product_id, NULL, file_descriptor, bus_num, dev_addr);
+    if (LIKELY(!result)) {
+        result = uvc_open(mDevice, &mDeviceHandle);
         if (LIKELY(!result)) {
-            result = uvc_open(_mDevice, &_mDeviceHandle);
+            uvc_get_stream_ctrl_format_size(
+                    mDeviceHandle, &ctrl, 
+                    UVC_FRAME_FORMAT_YUYV, // 프레임 포맷
+                    1280, 720, 10           // 해상도와 프레임 속도
+            );
+            result = uvc_start_streaming_bandwidth(
+                    mDeviceHandle, &ctrl, CaptureThread::frameCallback, (void *)this, 1.0f, 0
+            );
             if (LIKELY(!result)) {
-                uvc_get_stream_ctrl_format_size(
-                        _mDeviceHandle, &_ctrl, /* 네고셔블한 스트림 파라미터 */
-                        UVC_FRAME_FORMAT_YUYV, /* 프레임 포맷 */
-                        1280, 720, 30 /* 해상도와 프레임 속도 */
-                );
-                uvc_error_t result = uvc_start_streaming_bandwidth(
-                        _mDeviceHandle, &_ctrl, CaptureThread::frameCallback, (void *)this, 1.0f, 0);
-                LOGI("connect device");
-
-            } else {
-                // open出来なかった時
-                LOGE("could not open camera:err=%d", result);
-                uvc_unref_device(_mDevice);
-                _mDevice = NULL;
-                _mDeviceHandle = NULL;
-                close(file_descriptor);
-
+                device_connected.store(true);
+                LOGI("장치 연결 성공");
                 return;
             }
         } else {
-            LOGE("could not find camera:err=%d", result);
-            close(file_descriptor);
-            return;
+            LOGE("uvc_open 실패: %d", result);
         }
-    } else {
-        // カメラが既にopenしている時
-        LOGW("camera is already opened. you should release first");
+
+        // 실패 시 정리
+        if (mDeviceHandle) {
+            uvc_close(mDeviceHandle);
+            mDeviceHandle = nullptr;
+        }
+        if (mDevice) {
+            uvc_unref_device(mDevice);
+            mDevice = nullptr;
+        }
+        close(file_descriptor);
         return;
     }
 
-    return;
+    LOGE("카메라를 찾을 수 없습니다: err=%d", result);
+    close(file_descriptor);
 }
+
 
 void CaptureThread::startCubeDetection() {
     cube_detection_active = true;
@@ -536,7 +598,7 @@ extern "C" {
 JNIEXPORT jlong JNICALL
 Java_com_example_macro_capture_CaptureThread_nativeCreateObject(JNIEnv *env, jobject obj,
                                                                 jobject assetManager) {
-    LOGI("creat object");
+    LOGI("create object");
     AAssetManager *mgr = AAssetManager_fromJava(env, assetManager);
     CaptureThread *captureThread = new CaptureThread(mgr);
     LOGI("create %p", captureThread);
@@ -726,4 +788,32 @@ Java_com_example_macro_capture_CaptureThread_nativeGetMinimapImageBase64(JNIEnv 
 
     // Return the Base64 string as a Java string
     return env->NewStringUTF(base64_string.c_str());
+}
+
+// device cleanup 함수 수정
+void CaptureThread::cleanupDevice() {
+    device_connected.store(false);
+
+    if (mDeviceHandle) {
+        uvc_stop_streaming(mDeviceHandle);
+        uvc_close(mDeviceHandle);
+        mDeviceHandle = nullptr;
+    }
+
+    if (mDevice) {
+        uvc_unref_device(mDevice);
+        mDevice = nullptr;
+    }
+
+    if (mContext) {
+        uvc_exit(mContext);
+        mContext = nullptr;
+    }
+
+    // frameCallback가 더 이상 호출되지 않도록 보장
+    while (thread_running.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    LOGI("장치 정리 완료");
 }

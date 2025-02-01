@@ -33,8 +33,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.example.macro.capture.CaptureThread
 import com.example.macro.grpc.GrpcMain
 import com.example.macro.handler.UsbDeviceHandler
+import com.example.macro.handler.UsbDeviceHandler.Companion
 import com.example.macro.keyboard.GattServerService
 import com.example.macro.macro.KeyboardMacro
+import com.example.macro.service.CubeService
+import com.example.macro.test.UsbHelper
 import com.example.macro.ui.theme.MacroTheme
 import org.opencv.android.Utils
 import org.opencv.core.CvType
@@ -55,6 +58,8 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
     private val keyboardMacro by lazy { KeyboardMacro.getInstance(this) }
 
     lateinit var permissionLauncher: ActivityResultLauncher<Array<String>>
+    lateinit var usbHelper: UsbHelper;
+    lateinit var cubeService: CubeService;
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -163,6 +168,10 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
 
         grpcMain = GrpcMain(keyboardMacro, captureThread)
 
+        usbHelper = UsbHelper(this)
+
+        cubeService = CubeService(captureThread, assets)
+
         initializeUsbDevice()
         checkAndRequestPermissions()
 
@@ -255,7 +264,14 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
                 },
                 PendingIntent.FLAG_MUTABLE
             )
-            usbManager.requestPermission(device, permissionIntent)
+            var validDevice = ""
+            validDevice = usbHelper.getUsbDeviceType(device);
+            if (validDevice == "CaptureBoard" || validDevice == "Keyboard") {
+                Log.d(UsbDeviceHandler.TAG,"request permisson $validDevice")
+                usbManager.requestPermission(device, permissionIntent)
+            } else {
+                Log.e(UsbDeviceHandler.TAG, "USB device is not valid. so don't request permission")
+            }
         }
     }
 

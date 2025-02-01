@@ -65,26 +65,17 @@ public class UsbHelper {
     }
 
     public String getUsbDeviceType(UsbDevice device) {
-        UsbDeviceConnection connection = usbManager.openDevice(device);
-        if (connection == null) {
-            return "Invalid";
-        }
-
         for (int i = 0; i < device.getInterfaceCount(); i++) {
             UsbInterface usbInterface = device.getInterface(i);
             int interfaceClass = usbInterface.getInterfaceClass();
             if (interfaceClass == 3) {
                 // HID Class: 키보드일 가능성이 큼
-                connection.close();
                 return "Keyboard";
             } else if (interfaceClass == 14) {
                 // Video Class: 캡처보드일 가능성이 큼
-                connection.close();
                 return "CaptureBoard";
             }
         }
-
-        connection.close();
         return "Unknown";
     }
 

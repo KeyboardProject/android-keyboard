@@ -75,6 +75,15 @@ public:
     void addFrameObserver(FrameObserver* observer);
     void removeFrameObserver(FrameObserver* observer);
 
+    // 새로운 멤버 추가
+    std::atomic_bool device_connected{false};
+    std::atomic_bool thread_running{false};  // 스레드 상태 추적을 위한 새 변수
+    std::mutex device_mutex;
+
+    ~CaptureThread() {
+        stop();  // 객체가 파괴될 때 리소스 정리
+    }
+
 private:
     AAssetManager* mgr;  // 추가
     cv::UMat frame;
@@ -134,6 +143,10 @@ private:
     void notifyFrameObservers(const cv::UMat& frame);
 
     cv::UMat readImageFromAssets(AAssetManager* mgr, const char* filename);
+
+    void cleanupDevice();
+
+    void waitForThreadCompletion();  // 새로운 헬퍼 함수
 };
 
 extern "C" {
